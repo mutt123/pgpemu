@@ -63,4 +63,81 @@ uint32_t generate_session_id(void);
 bool toggle_device_autospin_by_session(uint32_t session_id);
 bool toggle_device_autocatch_by_session(uint32_t session_id);
 
+// ============================================================
+// NEW: Web Interface Getter/Setter Functions
+// ============================================================
+
+// Note: Since pgpemu uses per-device settings, we'll use the 
+// first connected device's settings for the web interface.
+// For global settings, these functions will use device index 0.
+
+/**
+ * @brief Get autocatch setting for first connected device
+ * @return true if autocatch enabled, false otherwise
+ */
+bool settings_get_autocatch(void);
+
+/**
+ * @brief Set autocatch setting for first connected device
+ * @param enabled true to enable, false to disable
+ */
+void settings_set_autocatch(bool enabled);
+
+/**
+ * @brief Get autospin setting for first connected device
+ * @return true if autospin enabled, false otherwise
+ */
+bool settings_get_autospin(void);
+
+/**
+ * @brief Set autospin setting for first connected device
+ * @param enabled true to enable, false to disable
+ */
+void settings_set_autospin(bool enabled);
+
+/**
+ * @brief Get powerbank ping setting (placeholder - not in original pgpemu)
+ * @return false (not implemented in original pgpemu)
+ */
+bool settings_get_powerbank_ping(void);
+
+/**
+ * @brief Set powerbank ping setting (placeholder - not in original pgpemu)
+ * @param enabled ignored
+ */
+void settings_set_powerbank_ping(bool enabled);
+
+/**
+ * @brief Get LED actions setting (placeholder - not in original pgpemu)
+ * @return false (not implemented in original pgpemu)
+ */
+bool settings_get_led_actions(void);
+
+/**
+ * @brief Set LED actions setting (placeholder - not in original pgpemu)
+ * @param enabled ignored
+ */
+void settings_set_led_actions(bool enabled);
+
+/**
+ * @brief Get verbose logging setting
+ * @return true if log_level >= 3, false otherwise
+ */
+bool settings_get_verbose(void);
+
+/**
+ * @brief Set verbose logging setting
+ * @param enabled true for verbose (level 3), false for info (level 2)
+ */
+void settings_set_verbose(bool enabled);
+
+/**
+ * @brief Save settings to NVS (placeholder - implement if NVS persistence needed)
+ * @return ESP_OK on success
+ * 
+ * Note: shortcuts/pgpemu doesn't have NVS persistence for runtime settings.
+ * This is a placeholder that you can implement if you want settings to persist.
+ */
+esp_err_t settings_save(void);
+
 #endif /* SETTINGS_H */

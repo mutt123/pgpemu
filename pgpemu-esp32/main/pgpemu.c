@@ -12,6 +12,13 @@
 #include "setup_button.h"
 #include "uart.h"
 
+//neu AP
+#include "wifi_ap_manager.h"
+#include "web_server.h"
+#include "button_wifi_trigger.h"
+
+
+
 void app_main() {
     // uart menu. put it first because it purges all logs
     init_uart();
@@ -59,6 +66,18 @@ void app_main() {
         global_settings_ready();  // release mutex
         ESP_LOGI(PGPEMU_TAG, "setup button pressed on boot; continuing startup");
     }
+
+    
+    // Nach NVS und Settings Initialisierung:
+    
+    // Initialize WiFi AP Manager
+    ESP_ERROR_CHECK(wifi_ap_manager_init());
+    ESP_LOGI(PGPEMU_TAG, "WiFi AP Manager initialized");
+    
+    // Initialize Button WiFi Trigger
+    ESP_ERROR_CHECK(button_wifi_trigger_init());
+    ESP_LOGI(PGPEMU_TAG, "Button WiFi trigger initialized");
+    
 
     init_button_input();
 

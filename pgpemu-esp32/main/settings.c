@@ -220,3 +220,157 @@ bool toggle_device_autocatch_by_session(uint32_t session_id) {
     ESP_LOGW(SETTING_TASK_TAG, "session_id=%lu not found, device likely disconnected", (unsigned long)session_id);
     return false;
 }
+
+// ============================================================
+// NEW: Web Interface Getter/Setter Functions
+// ============================================================
+
+/**
+ * @brief Get first connected device's settings entry
+ * Helper function for web interface
+ */
+static client_state_t* get_first_device_entry(void) {
+    // Try to get first active connection
+    for (int i = 0; i < get_max_connections(); i++) {
+        client_state_t* entry = get_client_state_entry_by_idx(i);
+        if (entry != NULL && entry->settings != NULL) {
+            return entry;
+        }
+    }
+    return NULL;
+}
+
+bool settings_get_autocatch(void) {
+    client_state_t* entry = get_first_device_entry();
+    
+    if (entry == NULL || entry->settings == NULL) {
+        // No device connected, return default
+        return true;  // Default: autocatch enabled
+    }
+    
+    if (!xSemaphoreTake(entry->settings->mutex, 10000 / portTICK_PERIOD_MS)) {
+        return true;  // Default on timeout
+    }
+    
+    bool result = entry->settings->autocatch;
+    xSemaphoreGive(entry->settings->mutex);
+    
+    return result;
+}
+
+void settings_set_autocatch(bool enabled) {
+    // Set for all connected devices
+    for (int i = 0; i < get_max_connections(); i++) {
+        client_state_t* entry = get_client_state_entry_by_idx(i);
+        
+        if (entry == NULL || entry->settings == NULL) {
+            continue;
+        }
+        
+        if (!xSemaphoreTake(entry->settings->mutex, 10000 / portTICK_PERIOD_MS)) {
+            continue;
+        }
+        
+        entry->settings->autocatch = enabled;
+        xSemaphoreGive(entry->settings->mutex);
+        
+        ESP_LOGI(SETTING_TASK_TAG, "[%d] autocatch set to %d via web interface", 
+                 entry->conn_id, enabled);
+    }
+}
+
+bool settings_get_autospin(void) {
+    client_state_t* entry = get_first_device_entry();
+    
+    if (entry == NULL || entry->settings == NULL) {
+        // No device connected, return default
+        return true;  // Default: autospin enabled
+    }
+    
+    if (!xSemaphoreTake(entry->settings->mutex, 10000 / portTICK_PERIOD_MS)) {
+        return true;  // Default on timeout
+    }
+    
+    bool result = entry->settings->autospin;
+    xSemaphoreGive(entry->settings->mutex);
+    
+    return result;
+}
+
+void settings_set_autospin(bool enabled) {
+    // Set for all connected devices
+    for (int i = 0; i < get_max_connections(); i++) {
+        client_state_t* entry = get_client_state_entry_by_idx(i);
+        
+        if (entry == NULL || entry->settings == NULL) {
+            continue;
+        }
+        
+        if (!xSemaphoreTake(entry->settings->mutex, 10000 / portTICK_PERIOD_MS)) {
+            continue;
+        }
+        
+        entry->settings->autospin = enabled;
+        xSemaphoreGive(entry->settings->mutex);
+        
+        ESP_LOGI(SETTING_TASK_TAG, "[%d] autospin set to %d via web interface", 
+                 entry->conn_id, enabled);
+    }
+}
+
+bool settings_get_powerbank_ping(void) {
+    // Placeholder: shortcuts/pgpemu doesn't have this feature
+    // Return false by default
+    // You can implement this if you add the powerbank ping feature
+    return false;
+}
+
+void settings_set_powerbank_ping(bool enabled) {
+    // Placeholder: shortcuts/pgpemu doesn't have this feature
+    // Log that this feature is not implemented
+    ESP_LOGW(SETTING_TASK_TAG, "Powerbank ping feature not implemented in shortcuts/pgpemu");
+    (void)enabled;  // Suppress unused warning
+}
+
+bool settings_get_led_actions(void) {
+    // Placeholder: shortcuts/pgpemu doesn't have a toggle for LED actions
+    // The LED always shows actions, so return true
+    // You can implement this if you want to add LED on/off control
+    return true;
+}
+
+void settings_set_led_actions(bool enabled) {
+    // Placeholder: shortcuts/pgpemu doesn't have LED on/off toggle
+    // Log that this feature is not implemented
+    ESP_LOGW(SETTING_TASK_TAG, "LED actions toggle not implemented in shortcuts/pgpemu");
+    (void)enabled;  // Suppress unused warning
+}
+
+bool settings_get_verbose(void) {
+    uint8_t log_level = get_setting_uint8(&global_settings.log_level);
+    // Verbose is true if log_level is 3 (verbose), false otherwise
+    return (log_level >= 3);
+}
+
+void settings_set_verbose(bool enabled) {
+    if (!xSemaphoreTake(global_settings.mutex, portMAX_DELAY)) {
+        return;
+    }
+    
+    // Set log_level to 3 (verbose) if enabled, else 2 (info)
+    global_settings.log_level = enabled ? 3 : 2;
+    
+    xSemaphoreGive(global_settings.mutex);
+    
+    ESP_LOGI(SETTING_TASK_TAG, "Verbose logging set to %d via web interface", enabled);
+}
+
+esp_err_t settings_save(void) {
+    // Placeholder: shortcuts/pgpemu doesn't have NVS persistence for runtime settings
+    // You can implement this if you want to add NVS storage
+    
+    ESP_LOGI(SETTING_TASK_TAG, "Settings saved (runtime only - no NVS persistence)");
+    
+    // Return success - settings are saved in RAM
+    return ESP_OK;
+}
