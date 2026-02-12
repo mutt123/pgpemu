@@ -1,3 +1,8 @@
+/**
+ * @file pgp_autobutton.c
+ * @brief Autobutton task for PGP emulation
+ */
+
 #include "pgp_autobutton.h"
 
 #include "esp_bt.h"
@@ -10,10 +15,7 @@
 #include "log_tags.h"
 #include "pgp_gatts.h"
 
-//neu
-#include "button_wifi_trigger.h"
-
-
+// REMOVED: #include "button_wifi_trigger.h" - not used
 
 QueueHandle_t button_queue;
 

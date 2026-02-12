@@ -36,7 +36,7 @@ idf_component_register(
         # NEW: WiFi AP and Web Server files
         "wifi_ap_manager.c"
         "web_server.c"
-        "button_wifi_trigger.c"
+       
         
     INCLUDE_DIRS "."
     
@@ -44,6 +44,7 @@ idf_component_register(
         bt
         driver
         esp_timer
+        esp_event #neu
         freertos
         mbedtls
         nvs_flash
