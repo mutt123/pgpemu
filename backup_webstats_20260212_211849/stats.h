@@ -2,7 +2,6 @@
 #define STATS_H
 
 #include <stdint.h>
-#include <stddef.h>  // For size_t
 
 void stats_get_runtime();
 
@@ -20,9 +19,5 @@ typedef struct {
     uint16_t conn_id;
     Stats stats;
 } StatsForConn;
-
-// NEW: Getter functions for web interface
-size_t stats_get_count(void);
-const StatsForConn* stats_get_entry(size_t index);
 
 #endif /* STATS_H */

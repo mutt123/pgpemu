@@ -51,9 +51,9 @@ typedef struct {
     char ssid[32];
     char password[64];
     int8_t tx_power;  // in 0.25 dBm units (8.5 dBm = 34)
-} user_wifi_ap_config_t;
+} wifi_ap_config_t;
 
-static user_wifi_ap_config_t current_config = {
+static wifi_ap_config_t current_config = {
     .ssid = WIFI_AP_SSID_DEFAULT,
     .password = WIFI_AP_PASS_DEFAULT,
     .tx_power = WIFI_AP_TX_POWER_DEFAULT

@@ -23,8 +23,6 @@
 // WiFi AP Feature
 #include "wifi_ap_manager.h"
 // Note: button_wifi_trigger.h nicht mehr nötig - Logik ist in button_input.c
-#include "device_config.h"
-
 
 void app_main() {
     // ========================================
@@ -112,14 +110,6 @@ void app_main() {
         global_settings_ready();  // Release mutex
         ESP_LOGI(PGPEMU_TAG, "setup button pressed on boot; continuing startup");
     }
-    
-    // Initialize device configuration
-    device_config_init();  // NEU!
-    //ESP_LOGI(TAG, "Initializing device configuration...");
-    //ret = device_config_init();
-    //if (ret != ESP_OK) {
-    //    ESP_LOGW(TAG, "Device config init failed: %s", esp_err_to_name(ret));
- 
 
     // ========================================
     // WiFi AP Manager Initialization

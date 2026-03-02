@@ -2,7 +2,7 @@
 #define STATS_H
 
 #include <stdint.h>
-#include <stddef.h>  // For size_t
+#include <stddef.h>
 
 void stats_get_runtime();
 

@@ -84,15 +84,3 @@ void stats_get_runtime() {
             stats[i].stats.spin);
     }
 }
-
-// NEW: Getter functions for web interface
-size_t stats_get_count(void) {
-    return stats_len;
-}
-
-const StatsForConn* stats_get_entry(size_t index) {
-    if (index < stats_len) {
-        return &stats[index];
-    }
-    return NULL;
-}

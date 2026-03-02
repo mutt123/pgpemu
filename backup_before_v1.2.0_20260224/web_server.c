@@ -1,19 +1,11 @@
 /**
- * @file web_server.c v1.2.0
- * @brief Complete Web Server with 5 Tabs
+ * @file web_server.c
+ * @brief ULTIMATE Web Server v3 - Android Captive Portal Compatible
  * 
- * v1.2.0 Features:
- * - Tab 1: Settings (Global Config)
- * - Tab 2: Statistics (Caught/Fled/Spin)
- * - Tab 3: Devices (Per-Device Settings)
- * - Tab 4: Secrets (WiFi SSID/Password/TX Power)
- * - Tab 5: Device Config (PGP Name/MAC/Blob/Key) [NEW]
- * 
- * - Android Captive Portal Support
- * - iOS Captive Portal Support
- * - Windows Captive Portal Support
- * - Timer Pause/Resume
- * - 15 API Endpoints
+ * FIXES FOR ANDROID:
+ * - Dedicated handlers for /generate_204 and /gen_204
+ * - Proper HTTP 302 redirects for captive portal detection
+ * - DNS captive portal support
  */
 
 #include "web_server.h"
@@ -22,7 +14,6 @@
 #include "settings.h"
 #include "pgp_handshake_multi.h"
 #include "stats.h"
-#include "device_config.h"  // NEW v1.2.0
 #include "log_tags.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -40,14 +31,14 @@ static uint32_t pause_time_remaining = 0;
 static esp_err_t index_handler(httpd_req_t *req);
 static esp_err_t captive_portal_redirect(httpd_req_t *req);
 
-// HTML with 5 Tabs
+// Enhanced HTML with Captive Portal support
 static const char index_html[] = 
 "<!DOCTYPE html>"
 "<html>"
 "<head>"
 "<meta charset='UTF-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
-"<title>PGPemu Control Panel v1.2.0</title>"
+"<title>PGPemu Control Panel</title>"
 "<style>"
 "*{margin:0;padding:0;box-sizing:border-box}"
 "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px}"
@@ -66,9 +57,8 @@ static const char index_html[] =
 ".connections{color:#555;font-size:14px}"
 ".info-box{background:#e3f2fd;color:#1976d2;padding:12px;border-radius:6px;margin-bottom:15px;font-size:13px;line-height:1.6}"
 ".info-box strong{display:block;margin-bottom:5px;font-size:14px}"
-".warning-box{background:#fff3cd;color:#856404;padding:12px;border-radius:6px;margin-bottom:15px;font-size:13px;line-height:1.6}"
-".tabs{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}"
-".tab{flex:1 1 auto;min-width:120px;padding:12px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.3s}"
+".tabs{display:flex;gap:10px;margin-bottom:20px}"
+".tab{flex:1;padding:12px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all 0.3s}"
 ".tab:hover{background:rgba(255,255,255,0.3)}"
 ".tab.active{background:#fff;color:#667eea;box-shadow:0 4px 8px rgba(0,0,0,0.2)}"
 ".tab-content{display:none}"
@@ -90,16 +80,11 @@ static const char index_html[] =
 "input[type='range']{width:100%;height:6px;border-radius:3px;background:#ddd;outline:none;-webkit-appearance:none}"
 "input[type='range']::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#667eea;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2)}"
 "input[type='range']::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#667eea;cursor:pointer;border:none}"
-"input[type='text'],input[type='password'],textarea,select{width:100%;padding:10px;border:2px solid #ddd;border-radius:6px;font-size:14px;background:white}"
-"input[type='text']:focus,input[type='password']:focus,textarea:focus,select:focus{border-color:#667eea;outline:none}"
-"textarea{resize:vertical;font-family:monospace}"
-"select{cursor:pointer}"
+"select{width:100%;padding:10px;border:2px solid #ddd;border-radius:6px;font-size:14px;background:white;cursor:pointer}"
+"select:focus{border-color:#667eea;outline:none}"
 "button{width:100%;padding:14px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 8px rgba(0,0,0,0.2);transition:transform 0.2s}"
 "button:hover{transform:translateY(-2px);box-shadow:0 6px 12px rgba(0,0,0,0.3)}"
 "button:active{transform:translateY(0)}"
-".btn-group{display:flex;gap:10px}"
-".btn-group button{flex:1}"
-".btn-reset{background:linear-gradient(135deg,#f5576c,#f093fb)}"
 ".status{text-align:center;padding:12px;border-radius:8px;margin:15px 0;font-weight:500}"
 ".status.success{background:#d4edda;color:#155724}"
 ".status.error{background:#f8d7da;color:#721c24}"
@@ -119,21 +104,20 @@ static const char index_html[] =
 ".battery-percent{font-weight:bold;color:#555}"
 ".prob-labels{display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:5px}"
 ".no-devices{text-align:center;padding:40px;color:#888;font-size:16px}"
-"@media (max-width:768px){.tabs{flex-wrap:wrap}.tab{flex:1 1 45%;margin-bottom:10px}}"
 "</style>"
 "</head>"
 "<body>"
 "<div class='container'>"
 "<h1>🎮 PGPemu Control Panel</h1>"
-"<div class='subtitle'>v1.2.0 - Advanced Pokemon Go Plus Emulator</div>"
+"<div class='subtitle'>Advanced Pokemon Go Plus Emulator Configuration</div>"
 
 "<div class='info-box'>"
 "<strong>ℹ️ Quick Start Guide</strong>"
-"• Press button for <strong>2 seconds</strong> to start WiFi AP<br>"
+"• Press button for <strong>1 second</strong> to start WiFi AP<br>"
 "• WiFi will auto-close after <strong>5 minutes</strong><br>"
+"• Connect to \"PGPemu-Setup\" and this page opens automatically"
 "• Default password: <strong>PogoPogo</strong><br>"
 "• Blue LED shows WiFi AP status<br>"
-"• Connect to \"PGPemu-Setup\" and this page opens automatically"
 "</div>"
 
 "<div class='info-bar'>"
@@ -153,27 +137,29 @@ static const char index_html[] =
 "<button class='tab' onclick='switchTab(1)'>📊 Statistics</button>"
 "<button class='tab' onclick='switchTab(2)'>📱 Devices</button>"
 "<button class='tab' onclick='switchTab(3)'>🔐 Secrets</button>"
-"<button class='tab' onclick='switchTab(4)'>🎮 Device Config</button>"
 "</div>"
 
-// Tab 0: Settings
 "<div class='tab-content active' id='tab0'>"
 "<div class='card'>"
 "<h2>⚙️ Global Settings</h2>"
+
 "<div class='setting-row'>"
 "<div><label>Auto Catch Pokemon</label><div class='help'>Automatically catch all Pokemon</div></div>"
 "<label class='toggle'><input type='checkbox' id='autocatch' onchange='settingsChanged()'><span class='slider'></span></label>"
 "</div>"
+
 "<div class='setting-row'>"
 "<div><label>Auto Spin Pokestops</label><div class='help'>Automatically spin Pokestops</div></div>"
 "<label class='toggle'><input type='checkbox' id='autospin' onchange='settingsChanged()'><span class='slider'></span></label>"
 "</div>"
+
 "<div class='setting'>"
 "<label>Autospin Probability: <span class='range-value' id='probValue'>Always</span></label>"
 "<div class='help'>0 = Always spin (100%) | 5 = 50% | 9 = Rare (10%)</div>"
 "<input type='range' id='probability' min='0' max='9' value='0' oninput='updateProbability()' onchange='settingsChanged()'>"
 "<div class='prob-labels'><span>Always</span><span>50%</span><span>Rare</span></div>"
 "</div>"
+
 "<div class='setting'>"
 "<label>Max Connections</label>"
 "<div class='help'>Maximum simultaneous device connections (1-4)</div>"
@@ -184,100 +170,73 @@ static const char index_html[] =
 "<option value='4'>4 Devices</option>"
 "</select>"
 "</div>"
+
 "<div class='setting'>"
 "<label>Log Level</label>"
-"<div class='help'>Higher = more detailed logs</div>"
+"<div class='help'>Higher = more detailed logs (affects performance)</div>"
 "<select id='logLevel' onchange='settingsChanged()'>"
-"<option value='1'>Debug</option>"
-"<option value='2'>Info</option>"
-"<option value='3'>Verbose</option>"
+"<option value='1'>Debug (Basic)</option>"
+"<option value='2'>Info (Recommended)</option>"
+"<option value='3'>Verbose (Detailed)</option>"
 "</select>"
 "</div>"
+
 "<button onclick='saveSettings()'>💾 Save Settings & Restart</button>"
 "</div>"
 "</div>"
 
-// Tab 1: Statistics
 "<div class='tab-content' id='tab1'>"
 "<div class='card'>"
 "<h2>📊 Statistics</h2>"
-"<div id='statsContent'><div class='no-devices'>Loading...</div></div>"
-"<button onclick='loadStats()' style='margin-top:20px;background:linear-gradient(135deg,#f093fb,#f5576c)'>🔄 Refresh</button>"
+"<div id='statsContent'><div class='no-devices'>Loading statistics...</div></div>"
+"<button onclick='loadStats()' style='margin-top:20px;background:linear-gradient(135deg,#f093fb,#f5576c)'>🔄 Refresh Stats</button>"
 "</div>"
 "</div>"
 
-// Tab 2: Devices
 "<div class='tab-content' id='tab2'>"
 "<div class='card'>"
 "<h2>📱 Connected Devices</h2>"
-"<div id='devicesContent'><div class='no-devices'>Loading...</div></div>"
-"<button onclick='loadDevices()' style='margin-top:20px;background:linear-gradient(135deg,#f093fb,#f5576c)'>🔄 Refresh</button>"
+"<div id='devicesContent'><div class='no-devices'>Loading devices...</div></div>"
+"<button onclick='loadDevices()' style='margin-top:20px;background:linear-gradient(135deg,#f093fb,#f5576c)'>🔄 Refresh Devices</button>"
 "</div>"
 "</div>"
-
-// Tab 3: Secrets
+//********* */
 "<div class='tab-content' id='tab3'>"
 "<div class='card'>"
 "<h2>🔐 WiFi AP Secrets</h2>"
+
 "<div class='setting'>"
 "<label>WiFi SSID</label>"
 "<div class='help'>Network name (default: PGPemu-Setup)</div>"
-"<input type='text' id='wifiSsid' maxlength='31' onchange='secretsChanged()'>"
+"<input type='text' id='wifiSsid' maxlength='31' "
+"       style='width:100%;padding:10px;border:2px solid #ddd;border-radius:6px'" 
+"       onchange='secretsChanged()'>"
 "</div>"
+
 "<div class='setting'>"
 "<label>WiFi Password (WPA2)</label>"
 "<div class='help'>Leave empty for Open network (default: PogoPogo)</div>"
-"<input type='password' id='wifiPassword' maxlength='63' onchange='secretsChanged()'>"
+"<input type='password' id='wifiPassword' maxlength='63' "
+"       style='width:100%;padding:10px;border:2px solid #ddd;border-radius:6px'"
+"       onchange='secretsChanged()'>"
 "</div>"
+
 "<div class='setting'>"
 "<label>TX Power: <span class='range-value' id='txPowerValue'>8.5 dBm</span></label>"
-"<div class='help'>WiFi transmission power: 2.0 - 21.0 dBm</div>"
-"<input type='range' id='txPower' min='8' max='84' value='34' oninput='updateTxPower()' onchange='secretsChanged()'>"
+"<div class='help'>WiFi transmission power: 2.0 - 21.0 dBm (default: 8.5 dBm)</div>"
+"<input type='range' id='txPower' min='8' max='84' value='34' "
+"       oninput='updateTxPower()' onchange='secretsChanged()'>"
 "<div class='prob-labels'><span>2.0 dBm</span><span>8.5 dBm</span><span>21.0 dBm</span></div>"
 "</div>"
-"<button onclick='saveSecrets()'>💾 Save Secrets</button>"
-"</div>"
-"</div>"
 
-// Tab 4: Device Config (NEW v1.2.0)
-"<div class='tab-content' id='tab4'>"
-"<div class='card'>"
-"<h2>🎮 PGP Device Configuration</h2>"
-"<div class='warning-box'>"
-"<strong>⚠️ Advanced Settings</strong><br>"
-"Only change if you know what you're doing! Changes take effect after device restart."
-"</div>"
-"<div class='setting'>"
-"<label>Device Name (PGP_CLONE_NAME)</label>"
-"<div class='help'>Pokemon Go Plus device name (max 63 chars)</div>"
-"<input type='text' id='deviceName' maxlength='63' placeholder='Pokemon GO Plus' onchange='deviceConfigChanged()'>"
-"</div>"
-"<div class='setting'>"
-"<label>MAC Address (PGP_MAC)</label>"
-"<div class='help'>Bluetooth MAC address (format: XX:XX:XX:XX:XX:XX)</div>"
-"<input type='text' id='deviceMac' maxlength='17' placeholder='AA:BB:CC:DD:EE:FF' pattern='[0-9A-Fa-f:]{17}' onchange='deviceConfigChanged()'>"
-"</div>"
-"<div class='setting'>"
-"<label>Blob Data (PGP_BLOB)</label>"
-"<div class='help'>Device blob data (hex string, 256 chars max)</div>"
-"<textarea id='deviceBlob' maxlength='256' rows='4' placeholder='0123456789ABCDEF...' onchange='deviceConfigChanged()'></textarea>"
-"</div>"
-"<div class='setting'>"
-"<label>Device Key (PGP_DEVICE_KEY)</label>"
-"<div class='help'>Device encryption key (hex string, 32 chars max)</div>"
-"<input type='text' id='deviceKey' maxlength='32' placeholder='0123456789ABCDEF' pattern='[0-9A-Fa-f]{0,32}' onchange='deviceConfigChanged()'>"
-"</div>"
-"<div class='btn-group'>"
-"<button onclick='saveDeviceConfig()'>💾 Save Config</button>"
-"<button class='btn-reset' onclick='resetDeviceConfig()'>🔄 Reset Defaults</button>"
+"<button onclick='saveSecrets()'>💾 Save Secrets & Restart WiFi</button>"
 "</div>"
 "</div>"
-"</div>"
-
+//********** */
 "</div>"
 
 "<script>"
-"let timerInterval,hasChanges=false,hasSecretsChanges=false,hasDeviceConfigChanges=false,currentTab=0,isPaused=false;"
+"let timerInterval,hasChanges=false,currentTab=0,isPaused=false;"
 "const probLabels=['Always','10%','20%','30%','40%','50%','60%','70%','80%','90%'];"
 
 "function updateProbability(){"
@@ -285,24 +244,19 @@ static const char index_html[] =
 "document.getElementById('probValue').textContent=probLabels[val];"
 "}"
 
-"function updateTxPower(){"
-"const val=document.getElementById('txPower').value;"
-"const dbm=(val*0.25).toFixed(1);"
-"document.getElementById('txPowerValue').textContent=dbm+' dBm';"
-"}"
-
 "function settingsChanged(){hasChanges=true;}"
-"function secretsChanged(){hasSecretsChanges=true;}"
-"function deviceConfigChanged(){hasDeviceConfigChanges=true;}"
 
 "function switchTab(tab){"
 "currentTab=tab;"
-"document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',i===tab));"
-"document.querySelectorAll('.tab-content').forEach((c,i)=>c.classList.toggle('active',i===tab));"
+"document.querySelectorAll('.tab').forEach((t,i)=>{"
+"t.classList.toggle('active',i===tab);"
+"});"
+"document.querySelectorAll('.tab-content').forEach((c,i)=>{"
+"c.classList.toggle('active',i===tab);"
+"});"
 "if(tab===1)loadStats();"
 "if(tab===2)loadDevices();"
 "if(tab===3)loadSecrets();"
-"if(tab===4)loadDeviceConfig();"
 "}"
 
 "function toggleTimer(){"
@@ -328,14 +282,15 @@ static const char index_html[] =
 "const mins=Math.floor(d.remaining/60);"
 "const secs=d.remaining%60;"
 "document.getElementById('timer').textContent=mins+':'+(secs<10?'0':'')+secs;"
-"if(d.paused)isPaused=true;"
+"if(d.paused){isPaused=true;document.getElementById('pauseBtn').textContent='▶ Resume';}"
 "if(d.remaining<=0){clearInterval(timerInterval);showStatus('WiFi AP closed','error');}"
-"}).catch(e=>console.error(e));"
+"}).catch(e=>console.error('Timer error:',e));"
 "}"
 
 "function updateConnectionInfo(){"
 "fetch('/api/connections').then(r=>r.json()).then(d=>{"
-"document.getElementById('connInfo').textContent=d.active+' of '+d.max+' device'+(d.active===1?'':'s')+' connected';"
+"document.getElementById('connInfo').textContent="
+"`${d.active} of ${d.max} device${d.active===1?'':'s'} connected`;"
 "}).catch(e=>console.error(e));"
 "}"
 
@@ -352,114 +307,102 @@ static const char index_html[] =
 "}"
 
 "function saveSettings(){"
-"if(!hasChanges){showStatus('No changes','error');return;}"
-"const data={autocatch:document.getElementById('autocatch').checked,autospin:document.getElementById('autospin').checked,probability:parseInt(document.getElementById('probability').value),maxConnections:parseInt(document.getElementById('maxConnections').value),logLevel:parseInt(document.getElementById('logLevel').value)};"
+"if(!hasChanges){showStatus('No changes to save','error');return;}"
+"const data={"
+"autocatch:document.getElementById('autocatch').checked,"
+"autospin:document.getElementById('autospin').checked,"
+"probability:parseInt(document.getElementById('probability').value),"
+"maxConnections:parseInt(document.getElementById('maxConnections').value),"
+"logLevel:parseInt(document.getElementById('logLevel').value)"
+"};"
 "fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})"
 ".then(r=>r.json()).then(d=>{"
-"if(d.status==='ok'){showStatus('✓ Saved! Restarting...','success');setTimeout(()=>window.location.reload(),3000);}"
-"else showStatus('Failed','error');"
-"}).catch(e=>showStatus('Error','error'));"
+"if(d.status==='ok'){"
+"showStatus('✓ Settings saved! Restarting...','success');"
+"setTimeout(()=>window.location.reload(),3000);"
+"}else showStatus('Failed to save','error');"
+"}).catch(e=>showStatus('Error: '+e.message,'error'));"
 "}"
 
 "function loadStats(){"
 "fetch('/api/stats').then(r=>r.json()).then(d=>{"
-"const c=document.getElementById('statsContent');"
-"if(!d.devices||!d.devices.length){c.innerHTML='<div class=\"no-devices\">No stats</div>';return;}"
-"let h='';"
+"const container=document.getElementById('statsContent');"
+"if(!d.devices||d.devices.length===0){"
+"container.innerHTML='<div class=\"no-devices\">No statistics available</div>';"
+"return;"
+"}"
+"let html='';"
 "d.devices.forEach(dev=>{"
-"h+=`<div><h3 style=\"margin:20px 0 10px;color:#667eea\">Device ${dev.conn_id}</h3><div class=\"stats-grid\">`;"
-"h+=`<div class=\"stat-box\"><div class=\"label\">Caught</div><div class=\"value\">${dev.stats.caught}</div></div>`;"
-"h+=`<div class=\"stat-box\"><div class=\"label\">Fled</div><div class=\"value\">${dev.stats.fled}</div></div>`;"
-"h+=`<div class=\"stat-box\"><div class=\"label\">Spins</div><div class=\"value\">${dev.stats.spin}</div></div>`;"
-"h+='</div></div>';"
+"html+=`<div><h3 style=\"margin:20px 0 10px;color:#667eea\">Device ${dev.conn_id}</h3>`;"
+"html+='<div class=\"stats-grid\">';"
+"html+=`<div class=\"stat-box\"><div class=\"label\">Caught</div><div class=\"value\">${dev.stats.caught}</div></div>`;"
+"html+=`<div class=\"stat-box\"><div class=\"label\">Fled</div><div class=\"value\">${dev.stats.fled}</div></div>`;"
+"html+=`<div class=\"stat-box\"><div class=\"label\">Spins</div><div class=\"value\">${dev.stats.spin}</div></div>`;"
+"html+='</div></div>';"
 "});"
-"c.innerHTML=h;"
-"}).catch(e=>{document.getElementById('statsContent').innerHTML='<div class=\"no-devices\">Failed</div>';});"
+"container.innerHTML=html;"
+"}).catch(e=>{"
+"document.getElementById('statsContent').innerHTML='<div class=\"no-devices\">Failed to load stats</div>';"
+"});"
 "}"
 
 "function loadDevices(){"
 "fetch('/api/devices').then(r=>r.json()).then(d=>{"
-"const c=document.getElementById('devicesContent');"
-"if(!d.devices||!d.devices.length){c.innerHTML='<div class=\"no-devices\">No devices</div>';return;}"
-"let h='';"
+"const container=document.getElementById('devicesContent');"
+"if(!d.devices||d.devices.length===0){"
+"container.innerHTML='<div class=\"no-devices\">No devices connected</div>';"
+"return;"
+"}"
+"let html='';"
 "d.devices.forEach(dev=>{"
-"h+='<div class=\"device-card\"><div class=\"device-header\">';"
-"h+=`<div class=\"device-id\">Device ${dev.conn_id}</div><div class=\"device-status\">● Connected</div></div>`;"
-"h+='<div class=\"battery\"><div class=\"battery-icon\">';"
-"h+=`<div class=\"battery-fill\" style=\"width:${dev.battery}%\"></div></div><div class=\"battery-tip\"></div>`;"
-"h+=`<div class=\"battery-percent\">${dev.battery}%</div></div><div style=\"margin-top:15px\">`;"
-"h+='<div class=\"setting-row\"><label>Autocatch</label>';"
-"h+=`<label class=\"toggle\"><input type=\"checkbox\" ${dev.settings.autocatch?'checked':''} onchange=\"saveDeviceSetting(${dev.conn_id},'autocatch',this.checked)\"><span class=\"slider\"></span></label></div>`;"
-"h+='<div class=\"setting-row\"><label>Autospin</label>';"
-"h+=`<label class=\"toggle\"><input type=\"checkbox\" ${dev.settings.autospin?'checked':''} onchange=\"saveDeviceSetting(${dev.conn_id},'autospin',this.checked)\"><span class=\"slider\"></span></label></div>`;"
-"h+=`<div style=\"margin-top:10px\"><label>Probability: ${probLabels[dev.settings.probability]}</label>`;"
-"h+=`<input type=\"range\" min=\"0\" max=\"9\" value=\"${dev.settings.probability}\" onchange=\"saveDeviceSetting(${dev.conn_id},'probability',this.value)\"></div></div></div>`;"
+"html+='<div class=\"device-card\">';"
+"html+='<div class=\"device-header\">';"
+"html+=`<div class=\"device-id\">Device ${dev.conn_id}</div>`;"
+"html+='<div class=\"device-status\">● Connected</div>';"
+"html+='</div>';"
+
+"html+='<div class=\"battery\">';"
+"html+='<div class=\"battery-icon\">';"
+"html+=`<div class=\"battery-fill\" style=\"width:${dev.battery}%\"></div>`;"
+"html+='</div>';"
+"html+='<div class=\"battery-tip\"></div>';"
+"html+=`<div class=\"battery-percent\">${dev.battery}%</div>`;"
+"html+='</div>';"
+
+"html+='<div style=\"margin-top:15px\">';"
+"html+='<div class=\"setting-row\">';"
+"html+=`<label>Autocatch</label>`;"
+"html+=`<label class=\"toggle\"><input type=\"checkbox\" ${dev.settings.autocatch?'checked':''} "
+"onchange=\"saveDeviceSetting(${dev.conn_id},'autocatch',this.checked)\"><span class=\"slider\"></span></label>`;"
+"html+='</div>';"
+
+"html+='<div class=\"setting-row\">';"
+"html+=`<label>Autospin</label>`;"
+"html+=`<label class=\"toggle\"><input type=\"checkbox\" ${dev.settings.autospin?'checked':''} "
+"onchange=\"saveDeviceSetting(${dev.conn_id},'autospin',this.checked)\"><span class=\"slider\"></span></label>`;"
+"html+='</div>';"
+
+"html+='<div style=\"margin-top:10px\">';"
+"html+=`<label>Probability: ${probLabels[dev.settings.probability]}</label>`;"
+"html+=`<input type=\"range\" min=\"0\" max=\"9\" value=\"${dev.settings.probability}\" "
+"onchange=\"saveDeviceSetting(${dev.conn_id},'probability',this.value)\">`;"
+"html+='</div>';"
+"html+='</div>';"
+
+"html+='</div>';"
 "});"
-"c.innerHTML=h;"
-"}).catch(e=>{document.getElementById('devicesContent').innerHTML='<div class=\"no-devices\">Failed</div>';});"
+"container.innerHTML=html;"
+"}).catch(e=>{"
+"document.getElementById('devicesContent').innerHTML='<div class=\"no-devices\">Failed to load devices</div>';"
+"});"
 "}"
 
 "function saveDeviceSetting(connId,setting,value){"
 "const data={conn_id:connId,setting:setting,value:value};"
 "fetch('/api/device',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})"
 ".then(r=>r.json()).then(d=>{"
-"if(d.status==='ok')showStatus('✓ Saved','success');"
-"else showStatus('Failed','error');"
-"}).catch(e=>showStatus('Error','error'));"
-"}"
-
-"function loadSecrets(){"
-"fetch('/api/secrets').then(r=>r.json()).then(d=>{"
-"document.getElementById('wifiSsid').value=d.ssid||'';"
-"document.getElementById('wifiPassword').value=d.password||'';"
-"document.getElementById('txPower').value=d.tx_power||34;"
-"updateTxPower();"
-"hasSecretsChanges=false;"
-"}).catch(e=>showStatus('Failed to load secrets','error'));"
-"}"
-
-"function saveSecrets(){"
-"if(!hasSecretsChanges){showStatus('No changes','error');return;}"
-"const data={ssid:document.getElementById('wifiSsid').value,password:document.getElementById('wifiPassword').value,tx_power:parseInt(document.getElementById('txPower').value)};"
-"fetch('/api/secrets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})"
-".then(r=>r.json()).then(d=>{"
-"if(d.status==='ok'){showStatus('✓ Saved! Restart WiFi to apply','success');hasSecretsChanges=false;}"
-"else showStatus('Failed','error');"
-"}).catch(e=>showStatus('Error','error'));"
-"}"
-
-"function loadDeviceConfig(){"
-"fetch('/api/device_config').then(r=>r.json()).then(d=>{"
-"document.getElementById('deviceName').value=d.name||'';"
-"document.getElementById('deviceMac').value=d.mac||'';"
-"document.getElementById('deviceBlob').value=d.blob||'';"
-"document.getElementById('deviceKey').value=d.dkey||'';"
-"hasDeviceConfigChanges=false;"
-"}).catch(e=>showStatus('Failed to load config','error'));"
-"}"
-
-"function saveDeviceConfig(){"
-"if(!hasDeviceConfigChanges){showStatus('No changes','error');return;}"
-"const mac=document.getElementById('deviceMac').value;"
-"if(mac&&!/^[0-9A-Fa-f:]{17}$/.test(mac)){showStatus('Invalid MAC (use XX:XX:XX:XX:XX:XX)','error');return;}"
-"const blob=document.getElementById('deviceBlob').value;"
-"if(blob&&!/^[0-9A-Fa-f]*$/.test(blob)){showStatus('Blob must be hex','error');return;}"
-"const dkey=document.getElementById('deviceKey').value;"
-"if(dkey&&!/^[0-9A-Fa-f]*$/.test(dkey)){showStatus('Key must be hex','error');return;}"
-"const data={name:document.getElementById('deviceName').value,mac:mac,blob:blob,dkey:dkey};"
-"fetch('/api/device_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})"
-".then(r=>r.json()).then(d=>{"
-"if(d.status==='ok'){showStatus('✓ Saved! Restart device to apply','success');hasDeviceConfigChanges=false;}"
-"else showStatus('Failed: '+(d.message||'Unknown'),'error');"
-"}).catch(e=>showStatus('Error','error'));"
-"}"
-
-"function resetDeviceConfig(){"
-"if(!confirm('Reset to defaults? Cannot be undone!'))return;"
-"fetch('/api/device_config/reset',{method:'POST'})"
-".then(r=>r.json()).then(d=>{"
-"if(d.status==='ok'){showStatus('✓ Reset complete','success');loadDeviceConfig();}"
-"else showStatus('Failed','error');"
+"if(d.status==='ok')showStatus('✓ Device setting saved','success');"
+"else showStatus('Failed to save','error');"
 "}).catch(e=>showStatus('Error','error'));"
 "}"
 
@@ -469,195 +412,251 @@ static const char index_html[] =
 "setTimeout(()=>s.classList.add('hidden'),3000);"
 "}"
 
-"window.addEventListener('beforeunload',e=>{if(hasChanges||hasSecretsChanges||hasDeviceConfigChanges){e.preventDefault();e.returnValue='';}});"
+"window.addEventListener('beforeunload',e=>{if(hasChanges){e.preventDefault();e.returnValue='';}});"
 
 "loadSettings();"
 "loadStats();"
 "loadDevices();"
-"loadSecrets();"
-"loadDeviceConfig();"
 "updateTimer();"
 "updateConnectionInfo();"
 "timerInterval=setInterval(()=>{updateTimer();updateConnectionInfo();},1000);"
+"loadSecrets();"
 "</script>"
 "</body>"
 "</html>";
 
-/* Android Captive Portal Detection */
+/* ANDROID CAPTIVE PORTAL - Dedicated handlers for detection URLs */
 static esp_err_t android_captive_detect_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "Android captive portal: %s", req->uri);
+    ESP_LOGI(TAG, "Android captive portal detection: %s", req->uri);
+    
+    // Return HTTP 302 redirect to main page
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
     httpd_resp_send(req, NULL, 0);
+    
     return ESP_OK;
 }
 
-/* Root handler */
+/* HTTP GET handler for root */
 static esp_err_t index_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
     httpd_resp_send(req, index_html, strlen(index_html));
     return ESP_OK;
 }
 
-/* Captive portal redirect */
+/* Captive portal redirect for unmatched URLs */
 static esp_err_t captive_portal_redirect(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "Redirect from: %s", req->uri);
+    ESP_LOGI(TAG, "Captive portal redirect from: %s", req->uri);
+    
+    // Redirect to main page
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
     httpd_resp_send(req, NULL, 0);
+    
     return ESP_OK;
 }
 
-/* API: Connections */
+/* HTTP GET handler for connections API */
 static esp_err_t api_connections_handler(httpd_req_t *req)
 {
     cJSON *root = cJSON_CreateObject();
+    
     int active = get_active_connections();
     int max_conn = get_setting_uint8(&global_settings.target_active_connections);
+    
     cJSON_AddNumberToObject(root, "active", active);
     cJSON_AddNumberToObject(root, "max", max_conn);
+    
     const char *json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(root);
     return ESP_OK;
 }
 
-/* API: Stats */
+/* HTTP GET handler for statistics API */
 static esp_err_t api_stats_handler(httpd_req_t *req)
 {
     cJSON *root = cJSON_CreateObject();
     cJSON *devices_array = cJSON_CreateArray();
+    
     size_t count = stats_get_count();
     for (size_t i = 0; i < count; i++) {
         const StatsForConn* entry = stats_get_entry(i);
         if (entry != NULL) {
             cJSON *device = cJSON_CreateObject();
             cJSON_AddNumberToObject(device, "conn_id", entry->conn_id);
+            
             cJSON *stats_obj = cJSON_CreateObject();
             cJSON_AddNumberToObject(stats_obj, "caught", entry->stats.caught);
             cJSON_AddNumberToObject(stats_obj, "fled", entry->stats.fled);
             cJSON_AddNumberToObject(stats_obj, "spin", entry->stats.spin);
+            
             cJSON_AddItemToObject(device, "stats", stats_obj);
             cJSON_AddItemToArray(devices_array, device);
         }
     }
+    
     cJSON_AddItemToObject(root, "devices", devices_array);
+    
     const char *json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(root);
     return ESP_OK;
 }
 
-/* API: Devices */
+/* HTTP GET handler for devices API */
 static esp_err_t api_devices_handler(httpd_req_t *req)
 {
     cJSON *root = cJSON_CreateObject();
     cJSON *devices_array = cJSON_CreateArray();
+    
     for (int i = 0; i < 4; i++) {
         client_state_t* entry = get_client_state_entry_by_idx(i);
         if (entry != NULL && entry->settings != NULL) {
             cJSON *device = cJSON_CreateObject();
             cJSON_AddNumberToObject(device, "conn_id", entry->conn_id);
+            
             int battery = 75 + (entry->conn_id * 5);
             if (battery > 100) battery = 100;
             cJSON_AddNumberToObject(device, "battery", battery);
+            
             if (xSemaphoreTake(entry->settings->mutex, pdMS_TO_TICKS(1000))) {
                 cJSON *settings_obj = cJSON_CreateObject();
                 cJSON_AddBoolToObject(settings_obj, "autocatch", entry->settings->autocatch);
                 cJSON_AddBoolToObject(settings_obj, "autospin", entry->settings->autospin);
                 cJSON_AddNumberToObject(settings_obj, "probability", entry->settings->autospin_probability);
+                
                 cJSON_AddItemToObject(device, "settings", settings_obj);
                 xSemaphoreGive(entry->settings->mutex);
             }
+            
             cJSON_AddItemToArray(devices_array, device);
         }
     }
+    
     cJSON_AddItemToObject(root, "devices", devices_array);
+    
     const char *json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(root);
     return ESP_OK;
 }
 
-/* API: Device POST */
+/* HTTP POST handler for per-device settings */
 static esp_err_t api_device_post_handler(httpd_req_t *req)
 {
     char buf[256];
-    int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf)-1));
+    int ret, remaining = req->content_len;
+    
+    if (remaining >= sizeof(buf)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too long");
+        return ESP_FAIL;
+    }
+    
+    ret = httpd_req_recv(req, buf, remaining);
     if (ret <= 0) {
-        httpd_resp_send_408(req);
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
         return ESP_FAIL;
     }
     buf[ret] = '\0';
     
     cJSON *root = cJSON_Parse(buf);
-    if (!root) {
+    if (root == NULL) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
         return ESP_FAIL;
     }
     
-    uint16_t conn_id = (uint16_t)cJSON_GetNumberValue(cJSON_GetObjectItem(root, "conn_id"));
-    const char *setting = cJSON_GetStringValue(cJSON_GetObjectItem(root, "setting"));
+    cJSON *conn_id_obj = cJSON_GetObjectItem(root, "conn_id");
+    cJSON *setting_obj = cJSON_GetObjectItem(root, "setting");
     cJSON *value_obj = cJSON_GetObjectItem(root, "value");
+    
+    if (!conn_id_obj || !setting_obj || !value_obj) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing parameters");
+        return ESP_FAIL;
+    }
+    
+    uint16_t conn_id = (uint16_t)cJSON_GetNumberValue(conn_id_obj);
+    const char *setting = cJSON_GetStringValue(setting_obj);
     
     client_state_t* entry = NULL;
     for (int i = 0; i < 4; i++) {
         entry = get_client_state_entry_by_idx(i);
-        if (entry && entry->conn_id == conn_id) break;
+        if (entry != NULL && entry->conn_id == conn_id) {
+            break;
+        }
         entry = NULL;
     }
     
-    if (!entry || !entry->settings) {
+    if (entry == NULL || entry->settings == NULL) {
         cJSON_Delete(root);
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Device not found");
         return ESP_FAIL;
     }
     
     if (xSemaphoreTake(entry->settings->mutex, pdMS_TO_TICKS(1000))) {
         if (strcmp(setting, "autocatch") == 0) {
             entry->settings->autocatch = cJSON_IsTrue(value_obj);
+            ESP_LOGI(TAG, "[%d] Autocatch set to %d", conn_id, entry->settings->autocatch);
         } else if (strcmp(setting, "autospin") == 0) {
             entry->settings->autospin = cJSON_IsTrue(value_obj);
+            ESP_LOGI(TAG, "[%d] Autospin set to %d", conn_id, entry->settings->autospin);
         } else if (strcmp(setting, "probability") == 0) {
             uint8_t prob = (uint8_t)cJSON_GetNumberValue(value_obj);
-            if (prob <= 9) entry->settings->autospin_probability = prob;
+            if (prob <= 9) {
+                entry->settings->autospin_probability = prob;
+                ESP_LOGI(TAG, "[%d] Probability set to %d", conn_id, prob);
+            }
         }
         xSemaphoreGive(entry->settings->mutex);
     }
+    
     write_devices_settings_to_nvs();
+    
     cJSON_Delete(root);
     
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "ok");
+    
     const char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(response);
+    
     return ESP_OK;
 }
 
-/* API: Settings GET */
+/* HTTP GET handler for settings API */
 static esp_err_t api_settings_get_handler(httpd_req_t *req)
 {
     cJSON *root = cJSON_CreateObject();
+    
     cJSON_AddBoolToObject(root, "autocatch", settings_get_autocatch());
     cJSON_AddBoolToObject(root, "autospin", settings_get_autospin());
+    
     uint8_t prob = 0;
     for (int i = 0; i < 4; i++) {
         client_state_t* entry = get_client_state_entry_by_idx(i);
-        if (entry && entry->settings) {
+        if (entry != NULL && entry->settings != NULL) {
             if (xSemaphoreTake(entry->settings->mutex, pdMS_TO_TICKS(1000))) {
                 prob = entry->settings->autospin_probability;
                 xSemaphoreGive(entry->settings->mutex);
@@ -670,350 +669,452 @@ static esp_err_t api_settings_get_handler(httpd_req_t *req)
                             get_setting_uint8(&global_settings.target_active_connections));
     cJSON_AddNumberToObject(root, "logLevel", 
                             get_setting_uint8(&global_settings.log_level));
+    
     const char *json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(root);
     return ESP_OK;
 }
 
-/* API: Settings POST */
+/* HTTP POST handler for settings API */
 static esp_err_t api_settings_post_handler(httpd_req_t *req)
 {
     char buf[512];
-    int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf)-1));
-    if (ret <= 0) return ESP_FAIL;
+    int ret, remaining = req->content_len;
+    
+    if (remaining >= sizeof(buf)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too long");
+        return ESP_FAIL;
+    }
+    
+    ret = httpd_req_recv(req, buf, remaining);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
     buf[ret] = '\0';
     
     cJSON *root = cJSON_Parse(buf);
-    if (!root) {
+    if (root == NULL) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
         return ESP_FAIL;
     }
     
-    cJSON *item;
-    if ((item = cJSON_GetObjectItem(root, "autocatch")) && cJSON_IsBool(item)) {
-        settings_set_autocatch(cJSON_IsTrue(item));
+    ESP_LOGI(TAG, "Received settings update");
+    
+    cJSON *autocatch = cJSON_GetObjectItem(root, "autocatch");
+    if (autocatch && cJSON_IsBool(autocatch)) {
+        settings_set_autocatch(cJSON_IsTrue(autocatch));
+        ESP_LOGI(TAG, "Autocatch set to %d", cJSON_IsTrue(autocatch));
     }
-    if ((item = cJSON_GetObjectItem(root, "autospin")) && cJSON_IsBool(item)) {
-        settings_set_autospin(cJSON_IsTrue(item));
+    
+    cJSON *autospin = cJSON_GetObjectItem(root, "autospin");
+    if (autospin && cJSON_IsBool(autospin)) {
+        settings_set_autospin(cJSON_IsTrue(autospin));
+        ESP_LOGI(TAG, "Autospin set to %d", cJSON_IsTrue(autospin));
     }
-    if ((item = cJSON_GetObjectItem(root, "probability")) && cJSON_IsNumber(item)) {
-        uint8_t prob = (uint8_t)cJSON_GetNumberValue(item);
+    
+    cJSON *probability = cJSON_GetObjectItem(root, "probability");
+    if (probability && cJSON_IsNumber(probability)) {
+        uint8_t prob = (uint8_t)cJSON_GetNumberValue(probability);
         if (prob <= 9) {
-            for (int i = 0; i < 4; i++) set_device_autospin_probability(i, prob);
-        }
-    }
-    if ((item = cJSON_GetObjectItem(root, "maxConnections")) && cJSON_IsNumber(item)) {
-        uint8_t max_conn = (uint8_t)cJSON_GetNumberValue(item);
-        if (max_conn >= 1 && max_conn <= 4) {
-            set_setting_uint8(&global_settings.target_active_connections, max_conn);
-        }
-    }
-    if ((item = cJSON_GetObjectItem(root, "logLevel")) && cJSON_IsNumber(item)) {
-        uint8_t level = (uint8_t)cJSON_GetNumberValue(item);
-        if (level >= 1 && level <= 3) {
-            set_setting_uint8(&global_settings.log_level, level);
-            if (level == 3) log_levels_verbose();
-            else if (level == 2) log_levels_info();
-            else log_levels_debug();
+            for (int i = 0; i < 4; i++) {
+                set_device_autospin_probability(i, prob);
+            }
+            ESP_LOGI(TAG, "Autospin probability set to %d", prob);
         }
     }
     
+    cJSON *maxConn = cJSON_GetObjectItem(root, "maxConnections");
+    if (maxConn && cJSON_IsNumber(maxConn)) {
+        uint8_t max_conn = (uint8_t)cJSON_GetNumberValue(maxConn);
+        if (max_conn >= 1 && max_conn <= 4) {
+            set_setting_uint8(&global_settings.target_active_connections, max_conn);
+            ESP_LOGI(TAG, "Max connections set to %d", max_conn);
+        }
+    }
+    
+    cJSON *logLevel = cJSON_GetObjectItem(root, "logLevel");
+    if (logLevel && cJSON_IsNumber(logLevel)) {
+        uint8_t level = (uint8_t)cJSON_GetNumberValue(logLevel);
+        if (level >= 1 && level <= 3) {
+            set_setting_uint8(&global_settings.log_level, level);
+            ESP_LOGI(TAG, "Log level set to %d", level);
+            
+            if (level == 3) {
+                log_levels_verbose();
+            } else if (level == 2) {
+                log_levels_info();
+            } else {
+                log_levels_debug();
+            }
+        }
+    }
+    
+    ESP_LOGI(TAG, "Saving settings to NVS...");
     write_global_settings_to_nvs();
     write_devices_settings_to_nvs();
+    
     cJSON_Delete(root);
     
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "ok");
+    cJSON_AddStringToObject(response, "message", "Settings saved, restarting...");
+    
     const char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(response);
     
+    ESP_LOGI(TAG, "Settings saved successfully, scheduling restart...");
     vTaskDelay(pdMS_TO_TICKS(500));
     wifi_ap_manager_stop();
     vTaskDelay(pdMS_TO_TICKS(1500));
     esp_restart();
+    
     return ESP_OK;
 }
 
-/* API: Timer */
+/* HTTP GET handler for timer API */
 static esp_err_t api_timer_handler(httpd_req_t *req)
 {
     cJSON *root = cJSON_CreateObject();
-    uint32_t remaining = timer_paused ? pause_time_remaining : 
-                        wifi_ap_manager_get_remaining_time() / 1000;
+    
+    uint32_t remaining;
+    if (timer_paused) {
+        remaining = pause_time_remaining;
+    } else {
+        remaining = wifi_ap_manager_get_remaining_time() / 1000;
+    }
+    
     cJSON_AddNumberToObject(root, "remaining", remaining);
     cJSON_AddBoolToObject(root, "paused", timer_paused);
+    
     const char *json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(root);
     return ESP_OK;
 }
 
-/* API: Timer Pause */
+/* HTTP POST handler for timer pause */
 static esp_err_t api_timer_pause_handler(httpd_req_t *req)
 {
     if (!timer_paused) {
         pause_time_remaining = wifi_ap_manager_get_remaining_time() / 1000;
         timer_paused = true;
         wifi_ap_manager_pause_timer();
+        ESP_LOGI(TAG, "Timer paused at %lu seconds", (unsigned long)pause_time_remaining);
     }
+    
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "ok");
+    cJSON_AddStringToObject(response, "message", "Timer paused");
+    
     const char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(response);
     return ESP_OK;
 }
 
-/* API: Timer Resume */
+/* HTTP POST handler for timer resume */
 static esp_err_t api_timer_resume_handler(httpd_req_t *req)
 {
     if (timer_paused) {
         timer_paused = false;
         wifi_ap_manager_resume_timer();
+        ESP_LOGI(TAG, "Timer resumed");
     }
+    
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "ok");
+    cJSON_AddStringToObject(response, "message", "Timer resumed");
+    
     const char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(response);
     return ESP_OK;
 }
-
-/* API: Secrets GET */
+//****** */
+/* HTTP GET handler for secrets API */
 static esp_err_t api_secrets_get_handler(httpd_req_t *req)
 {
     char ssid[32] = {0};
     char password[64] = {0};
     int8_t tx_power = 0;
-    wifi_ap_manager_get_config(ssid, sizeof(ssid), password, sizeof(password), &tx_power);
+    
+    wifi_ap_manager_get_config(ssid, sizeof(ssid), 
+                               password, sizeof(password), 
+                               &tx_power);
     
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "ssid", ssid);
     cJSON_AddStringToObject(root, "password", password);
     cJSON_AddNumberToObject(root, "tx_power", tx_power);
+    
     const char *json_str = cJSON_Print(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(root);
     return ESP_OK;
 }
 
-/* API: Secrets POST */
+/* HTTP POST handler for secrets API */
 static esp_err_t api_secrets_post_handler(httpd_req_t *req)
 {
     char buf[512];
-    int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf)-1));
-    if (ret <= 0) return ESP_FAIL;
+    int ret, remaining = req->content_len;
+    
+    if (remaining >= sizeof(buf)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too long");
+        return ESP_FAIL;
+    }
+    
+    ret = httpd_req_recv(req, buf, remaining);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
     buf[ret] = '\0';
     
     cJSON *root = cJSON_Parse(buf);
-    if (!root) {
+    if (root == NULL) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
         return ESP_FAIL;
     }
+    
+    ESP_LOGI(TAG, "Received secrets update");
     
     const char *ssid = NULL;
     const char *password = NULL;
     int8_t tx_power = -1;
     
-    cJSON *item;
-    if ((item = cJSON_GetObjectItem(root, "ssid")) && cJSON_IsString(item)) {
-        ssid = cJSON_GetStringValue(item);
-    }
-    if ((item = cJSON_GetObjectItem(root, "password")) && cJSON_IsString(item)) {
-        password = cJSON_GetStringValue(item);
-    }
-    if ((item = cJSON_GetObjectItem(root, "tx_power")) && cJSON_IsNumber(item)) {
-        tx_power = (int8_t)cJSON_GetNumberValue(item);
+    cJSON *ssid_obj = cJSON_GetObjectItem(root, "ssid");
+    if (ssid_obj && cJSON_IsString(ssid_obj)) {
+        ssid = cJSON_GetStringValue(ssid_obj);
+        ESP_LOGI(TAG, "New SSID: %s", ssid);
     }
     
+    cJSON *pass_obj = cJSON_GetObjectItem(root, "password");
+    if (pass_obj && cJSON_IsString(pass_obj)) {
+        password = cJSON_GetStringValue(pass_obj);
+        if (strlen(password) > 0) {
+            ESP_LOGI(TAG, "New password set (length: %d)", strlen(password));
+        } else {
+            ESP_LOGI(TAG, "Password cleared (Open network)");
+        }
+    }
+    
+    cJSON *tx_obj = cJSON_GetObjectItem(root, "tx_power");
+    if (tx_obj && cJSON_IsNumber(tx_obj)) {
+        tx_power = (int8_t)cJSON_GetNumberValue(tx_obj);
+        ESP_LOGI(TAG, "New TX power: %d (%.1f dBm)", tx_power, tx_power * 0.25f);
+    }
+    
+    // Save to NVS
     wifi_ap_manager_set_config(ssid, password, tx_power);
+    
     cJSON_Delete(root);
     
     cJSON *response = cJSON_CreateObject();
     cJSON_AddStringToObject(response, "status", "ok");
+    cJSON_AddStringToObject(response, "message", "Secrets saved. Restart WiFi AP to apply.");
+    
     const char *json_str = cJSON_Print(response);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_str);
+    
     free((void *)json_str);
     cJSON_Delete(response);
+    
+    ESP_LOGI(TAG, "Secrets saved successfully");
+    
     return ESP_OK;
 }
-
-/* API: Device Config GET (NEW v1.2.0) */
-static esp_err_t api_device_config_get_handler(httpd_req_t *req)
-{
-    device_config_t config;
-    get_device_config(&config);
-    
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "name", config.name);
-    cJSON_AddStringToObject(root, "mac", config.mac);
-    cJSON_AddStringToObject(root, "blob", config.blob);
-    cJSON_AddStringToObject(root, "dkey", config.dkey);
-    
-    const char *json_str = cJSON_Print(root);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json_str);
-    free((void *)json_str);
-    cJSON_Delete(root);
-    return ESP_OK;
-}
-
-/* API: Device Config POST (NEW v1.2.0) */
-static esp_err_t api_device_config_post_handler(httpd_req_t *req)
-{
-    char buf[1024];
-    int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf)-1));
-    if (ret <= 0) return ESP_FAIL;
-    buf[ret] = '\0';
-    
-    cJSON *root = cJSON_Parse(buf);
-    if (!root) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
-        return ESP_FAIL;
-    }
-    
-    device_config_t config;
-    get_device_config(&config);
-    
-    cJSON *item;
-    if ((item = cJSON_GetObjectItem(root, "name")) && cJSON_IsString(item)) {
-        strncpy(config.name, cJSON_GetStringValue(item), sizeof(config.name)-1);
-    }
-    if ((item = cJSON_GetObjectItem(root, "mac")) && cJSON_IsString(item)) {
-        strncpy(config.mac, cJSON_GetStringValue(item), sizeof(config.mac)-1);
-    }
-    if ((item = cJSON_GetObjectItem(root, "blob")) && cJSON_IsString(item)) {
-        strncpy(config.blob, cJSON_GetStringValue(item), sizeof(config.blob)-1);
-    }
-    if ((item = cJSON_GetObjectItem(root, "dkey")) && cJSON_IsString(item)) {
-        strncpy(config.dkey, cJSON_GetStringValue(item), sizeof(config.dkey)-1);
-    }
-    
-    esp_err_t err = set_device_config(&config);
-    cJSON_Delete(root);
-    
-    cJSON *response = cJSON_CreateObject();
-    if (err == ESP_OK) {
-        cJSON_AddStringToObject(response, "status", "ok");
-    } else {
-        cJSON_AddStringToObject(response, "status", "error");
-        cJSON_AddStringToObject(response, "message", "Invalid config");
-    }
-    const char *json_str = cJSON_Print(response);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json_str);
-    free((void *)json_str);
-    cJSON_Delete(response);
-    return ESP_OK;
-}
-
-/* API: Device Config Reset (NEW v1.2.0) */
-static esp_err_t api_device_config_reset_handler(httpd_req_t *req)
-{
-    reset_device_config();
-    
-    cJSON *response = cJSON_CreateObject();
-    cJSON_AddStringToObject(response, "status", "ok");
-    const char *json_str = cJSON_Print(response);
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_sendstr(req, json_str);
-    free((void *)json_str);
-    cJSON_Delete(response);
-    return ESP_OK;
-}
-
-/* Start web server */
+//******* */
 esp_err_t web_server_start(void)
 {
     if (server != NULL) {
-        ESP_LOGW(TAG, "Already running");
+        ESP_LOGW(TAG, "Web server already running");
         return ESP_ERR_INVALID_STATE;
     }
     
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_open_sockets = 20;  // v1.2.0: Increased for device config
+    config.max_open_sockets = 17;  // Increased for Android captive detection
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 20;
+    config.max_uri_handlers = 17;  // Ensure enough handlers
     
-    ESP_LOGI(TAG, "Starting web server v1.2.0");
+    ESP_LOGI(TAG, "Starting web server on port %d", config.server_port);
     
     if (httpd_start(&server, &config) == ESP_OK) {
-        // Android captive portal
-        httpd_uri_t uri_gen204 = {"/generate_204", HTTP_GET, android_captive_detect_handler, NULL};
-        httpd_register_uri_handler(server, &uri_gen204);
-        httpd_uri_t uri_gen204_alt = {"/gen_204", HTTP_GET, android_captive_detect_handler, NULL};
-        httpd_register_uri_handler(server, &uri_gen204_alt);
-        httpd_uri_t uri_hotspot = {"/hotspot-detect.html", HTTP_GET, android_captive_detect_handler, NULL};
-        httpd_register_uri_handler(server, &uri_hotspot);
+        // Register ANDROID CAPTIVE PORTAL DETECTION URLs FIRST
+        httpd_uri_t android_gen204_uri = {
+            .uri = "/generate_204",
+            .method = HTTP_GET,
+            .handler = android_captive_detect_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &android_gen204_uri);
         
-        // Main
-        httpd_uri_t uri_index = {"/", HTTP_GET, index_handler, NULL};
-        httpd_register_uri_handler(server, &uri_index);
+        httpd_uri_t android_gen204_alt_uri = {
+            .uri = "/gen_204",
+            .method = HTTP_GET,
+            .handler = android_captive_detect_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &android_gen204_alt_uri);
         
-        // APIs
-        httpd_uri_t uri_conn = {"/api/connections", HTTP_GET, api_connections_handler, NULL};
-        httpd_register_uri_handler(server, &uri_conn);
-        httpd_uri_t uri_stats = {"/api/stats", HTTP_GET, api_stats_handler, NULL};
-        httpd_register_uri_handler(server, &uri_stats);
-        httpd_uri_t uri_devs = {"/api/devices", HTTP_GET, api_devices_handler, NULL};
-        httpd_register_uri_handler(server, &uri_devs);
-        httpd_uri_t uri_dev_post = {"/api/device", HTTP_POST, api_device_post_handler, NULL};
-        httpd_register_uri_handler(server, &uri_dev_post);
-        httpd_uri_t uri_set_get = {"/api/settings", HTTP_GET, api_settings_get_handler, NULL};
-        httpd_register_uri_handler(server, &uri_set_get);
-        httpd_uri_t uri_set_post = {"/api/settings", HTTP_POST, api_settings_post_handler, NULL};
-        httpd_register_uri_handler(server, &uri_set_post);
-        httpd_uri_t uri_timer = {"/api/timer", HTTP_GET, api_timer_handler, NULL};
-        httpd_register_uri_handler(server, &uri_timer);
-        httpd_uri_t uri_pause = {"/api/timer/pause", HTTP_POST, api_timer_pause_handler, NULL};
-        httpd_register_uri_handler(server, &uri_pause);
-        httpd_uri_t uri_resume = {"/api/timer/resume", HTTP_POST, api_timer_resume_handler, NULL};
-        httpd_register_uri_handler(server, &uri_resume);
-        httpd_uri_t uri_sec_get = {"/api/secrets", HTTP_GET, api_secrets_get_handler, NULL};
-        httpd_register_uri_handler(server, &uri_sec_get);
-        httpd_uri_t uri_sec_post = {"/api/secrets", HTTP_POST, api_secrets_post_handler, NULL};
-        httpd_register_uri_handler(server, &uri_sec_post);
+        httpd_uri_t android_hotspot_uri = {
+            .uri = "/hotspot-detect.html",
+            .method = HTTP_GET,
+            .handler = android_captive_detect_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &android_hotspot_uri);
         
-        // NEW v1.2.0: Device Config APIs
-        httpd_uri_t uri_dc_get = {"/api/device_config", HTTP_GET, api_device_config_get_handler, NULL};
-        httpd_register_uri_handler(server, &uri_dc_get);
-        httpd_uri_t uri_dc_post = {"/api/device_config", HTTP_POST, api_device_config_post_handler, NULL};
-        httpd_register_uri_handler(server, &uri_dc_post);
-        httpd_uri_t uri_dc_reset = {"/api/device_config/reset", HTTP_POST, api_device_config_reset_handler, NULL};
-        httpd_register_uri_handler(server, &uri_dc_reset);
+        // Register specific handlers
+        httpd_uri_t index_uri = {
+            .uri = "/",
+            .method = HTTP_GET,
+            .handler = index_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &index_uri);
         
-        // Catchall
-        httpd_uri_t uri_catchall = {"/*", HTTP_GET, captive_portal_redirect, NULL};
-        httpd_register_uri_handler(server, &uri_catchall);
+        httpd_uri_t api_connections_uri = {
+            .uri = "/api/connections",
+            .method = HTTP_GET,
+            .handler = api_connections_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_connections_uri);
         
-        ESP_LOGI(TAG, "Web server started (v1.2.0 with 5 tabs)");
+        httpd_uri_t api_stats_uri = {
+            .uri = "/api/stats",
+            .method = HTTP_GET,
+            .handler = api_stats_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_stats_uri);
+        
+        httpd_uri_t api_devices_uri = {
+            .uri = "/api/devices",
+            .method = HTTP_GET,
+            .handler = api_devices_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_devices_uri);
+        
+        httpd_uri_t api_device_post_uri = {
+            .uri = "/api/device",
+            .method = HTTP_POST,
+            .handler = api_device_post_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_device_post_uri);
+        
+        httpd_uri_t api_settings_get_uri = {
+            .uri = "/api/settings",
+            .method = HTTP_GET,
+            .handler = api_settings_get_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_settings_get_uri);
+        
+        httpd_uri_t api_settings_post_uri = {
+            .uri = "/api/settings",
+            .method = HTTP_POST,
+            .handler = api_settings_post_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_settings_post_uri);
+        
+        httpd_uri_t api_timer_uri = {
+            .uri = "/api/timer",
+            .method = HTTP_GET,
+            .handler = api_timer_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_timer_uri);
+        
+        httpd_uri_t api_timer_pause_uri = {
+            .uri = "/api/timer/pause",
+            .method = HTTP_POST,
+            .handler = api_timer_pause_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_timer_pause_uri);
+        
+        httpd_uri_t api_timer_resume_uri = {
+            .uri = "/api/timer/resume",
+            .method = HTTP_POST,
+            .handler = api_timer_resume_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_timer_resume_uri);
+        
+        // Captive Portal catch-all - Register LAST as fallback
+        httpd_uri_t captive_catchall_uri = {
+            .uri = "/*",
+            .method = HTTP_GET,
+            .handler = captive_portal_redirect,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &captive_catchall_uri);
+
+        //**** */
+        httpd_uri_t api_secrets_get_uri = {
+            .uri = "/api/secrets",
+            .method = HTTP_GET,
+            .handler = api_secrets_get_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_secrets_get_uri);
+        
+        httpd_uri_t api_secrets_post_uri = {
+            .uri = "/api/secrets",
+            .method = HTTP_POST,
+            .handler = api_secrets_post_handler,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_secrets_post_uri);
+        //***** */
+        
+        ESP_LOGI(TAG, "Web server started successfully");
+        ESP_LOGI(TAG, "Android Captive Portal detection enabled");
+        ESP_LOGI(TAG, "Registered URLs: /generate_204, /gen_204, /hotspot-detect.html");
+        ESP_LOGI(TAG, "Access at: http://192.168.4.1");
         return ESP_OK;
     }
     
-    ESP_LOGE(TAG, "Failed to start");
+    ESP_LOGE(TAG, "Failed to start web server");
     return ESP_FAIL;
 }
 
-/* Stop web server */
 esp_err_t web_server_stop(void)
 {
     if (server != NULL) {
+        ESP_LOGI(TAG, "Stopping web server");
         httpd_stop(server);
         server = NULL;
         timer_paused = false;

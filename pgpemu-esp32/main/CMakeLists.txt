@@ -36,6 +36,7 @@ idf_component_register(
         # NEW: WiFi AP and Web Server files
         "wifi_ap_manager.c"
         "web_server.c"
+        "device_config.c"  # NEU!
        
         
     INCLUDE_DIRS "."
