@@ -1,9 +1,17 @@
 /**
- * @file button_input.c
- * @brief Button input handler with WiFi AP trigger support
+ * @file button_input.c v1.3.1-COEXIST
+ * @brief Button input handler with WiFi AP trigger and Bluetooth restart
  * 
- * STACK FIX: Increased stack from 2048 to 4096 bytes
- * OPTIMIZED: Reduced polling frequency to save CPU
+ * FEATURES:
+ * - Stack increased from 2048 to 4096 bytes
+ * - Reduced polling frequency to save CPU
+ * - WiFi AP trigger on 2s hold
+ * - Bluetooth advertising restart after WiFi (ESP32-C3 coexistence fix)
+ * 
+ * CRITICAL FIX v1.3.1:
+ * - Restarts Bluetooth advertising after WiFi AP starts
+ * - PRIMARY fix for ESP32-C3 WiFi-BLE coexistence issue
+ * - Works reliably without explicit coexistence API
  */
 
 #include "button_input.h"
@@ -112,6 +120,23 @@ static void button_input_task(void* pvParameters) {
                         ret = web_server_start();
                         if (ret == ESP_OK) {
                             ESP_LOGI(BUTTON_INPUT_TAG, "Web server started successfully!");
+                            
+                            // CRITICAL FIX: Restart Bluetooth Advertising
+                            // ESP32-C3 WiFi-BLE coexistence: WiFi can suppress BLE advertising
+                            // Must explicitly restart advertising after WiFi starts
+                            ESP_LOGI(BUTTON_INPUT_TAG, "Checking Bluetooth advertising status...");
+                            vTaskDelay(pdMS_TO_TICKS(500));  // Wait for WiFi to settle
+                            
+                            int target_conn = get_setting_uint8(&global_settings.target_active_connections);
+                            int active_conn = get_active_connections();
+                            
+                            if (active_conn < target_conn) {
+                                ESP_LOGI(BUTTON_INPUT_TAG, "Restarting Bluetooth advertising (WiFi-BLE coexistence fix)");
+                                pgp_advertise();
+                            } else {
+                                ESP_LOGI(BUTTON_INPUT_TAG, "Bluetooth advertising not needed (%d/%d connections)", 
+                                         active_conn, target_conn);
+                            }
                         } else {
                             ESP_LOGE(BUTTON_INPUT_TAG, "Failed to start web server: %s", esp_err_to_name(ret));
                             wifi_ap_manager_stop();

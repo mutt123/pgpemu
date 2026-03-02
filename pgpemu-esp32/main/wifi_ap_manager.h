@@ -20,13 +20,13 @@
 #define WIFI_AP_SSID_DEFAULT       "PGPemu-Setup"
 #define WIFI_AP_PASS_DEFAULT       "PogoPogo"      // WPA2 password
 #define WIFI_AP_CHANNEL            1
-#define WIFI_AP_MAX_CONNECTIONS    4
-#define WIFI_AP_TIMEOUT_MS         (5 * 60 * 1000)  // 5 minutes (was 3)
+#define WIFI_AP_MAX_CONNECTIONS    1
+#define WIFI_AP_TIMEOUT_MS         (2 * 60 * 1000)  // 5 minutes (was 3)
 #define WIFI_AP_TX_POWER_DEFAULT   34               // 8.5 dBm (34 * 0.25)
 
 // TX Power range: 8 to 84 (2 dBm to 21 dBm in 0.25 dBm steps)
-#define WIFI_AP_TX_POWER_MIN       8    // 2.0 dBm
-#define WIFI_AP_TX_POWER_MAX       84   // 21.0 dBm
+#define WIFI_AP_TX_POWER_MIN       16    // 4.0 dBm
+#define WIFI_AP_TX_POWER_MAX       72   // 18.0 dBm
 
 // WiFi AP Status
 typedef enum {
