@@ -53,3 +53,4 @@ idf_component_register(
         esp_http_server   # NEW: Required for web server
         json              # NEW: Required for JSON parsing
 )
+nvs_create_partition_image(nvs ../secrets.csv FLASH_IN_PROJECT)
