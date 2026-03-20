@@ -120,6 +120,19 @@ static const char index_html[] =
 ".prob-labels{display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:5px}"
 ".no-devices{text-align:center;padding:40px;color:#888;font-size:16px}"
 "@media (max-width:768px){.tabs{flex-wrap:wrap}.tab{flex:1 1 45%;margin-bottom:10px}}"
+/**************************************************** */
+
+".sub-tabs{display:flex;gap:10px;margin-bottom:15px;background:rgba(255,255,255,0.1);padding:10px;border-radius:8px}"
+".sub-tab{flex:1;padding:10px;background:rgba(255,255,255,0.3);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;transition:all 0.3s}"
+".sub-tab:hover{background:rgba(255,255,255,0.4)}"
+".sub-tab.active{background:#fff;color:#667eea;box-shadow:0 2px 4px rgba(0,0,0,0.2)}"
+".sub-tab-content{display:none}"
+".sub-tab-content.active{display:block}"
+".char-count{font-size:12px;color:#888;margin-top:5px;text-align:right}"
+"code{background:#f0f0f0;padding:2px 6px;border-radius:3px;font-family:monospace;font-size:12px}"
+".btn-reset{background:linear-gradient(135deg,#f5576c 0%,#f093fb 100%)!important}"
+
+/***************************************************** */
 "</style>"
 "</head>"
 "<body>"
@@ -239,33 +252,83 @@ static const char index_html[] =
 "</div>"
 "</div>"
 
-// Tab 4: Device Config (NEW v1.2.0)
+// Tab 4: Device Config with SUB-TABS (v2.0-DUAL)
 "<div class='tab-content' id='tab4'>"
+
+// Sub-Tabs for Device Config
+"<div class='sub-tabs'>"
+"<button class='sub-tab active' onclick='switchDeviceTab(0)'>🔐 PGP Secrets (Bluetooth)</button>"
+"<button class='sub-tab' onclick='switchDeviceTab(1)'>⚙️ Device Config (Web)</button>"
+"</div>"
+
+// Sub-Tab 0: PGP Secrets (pgpsecret namespace)
+"<div class='sub-tab-content active' id='deviceSubTab0'>"
 "<div class='card'>"
-"<h2>🎮 PGP Device Configuration</h2>"
-"<div class='warning-box'>"
-"<strong>⚠️ Advanced Settings</strong><br>"
-"Only change if you know what you're doing! Changes take effect after device restart."
+"<h2>🔐 PGP Secrets (Bluetooth Stack)</h2>"
+"<div class='info-box'>"
+"<strong>📡 Active Bluetooth Configuration</strong><br>"
+"These are the REAL secrets used by the Bluetooth stack to connect to Pokemon GO.<br>"
+"Stored in NVS namespace: <code>pgpsecret</code><br>"
+"⚠️ Changes require device restart to take effect!"
 "</div>"
 "<div class='setting'>"
 "<label>Device Name (PGP_CLONE_NAME)</label>"
-"<div class='help'>Pokemon Go Plus device name (max 63 chars)</div>"
-"<input type='text' id='deviceName' maxlength='63' placeholder='Pokemon GO Plus' onchange='deviceConfigChanged()'>"
+"<div class='help'>Bluetooth advertised name (max 15 chars)</div>"
+"<input type='text' id='pgpSecretName' maxlength='15' placeholder='PKLMGOPLUS' onchange='pgpSecretsChanged()'>"
 "</div>"
 "<div class='setting'>"
 "<label>MAC Address (PGP_MAC)</label>"
 "<div class='help'>Bluetooth MAC address (format: XX:XX:XX:XX:XX:XX)</div>"
-"<input type='text' id='deviceMac' maxlength='17' placeholder='AA:BB:CC:DD:EE:FF' pattern='[0-9A-Fa-f:]{17}' onchange='deviceConfigChanged()'>"
+"<input type='text' id='pgpSecretMac' maxlength='17' placeholder='e4:cb:0b:c3:59:63' pattern='[0-9A-Fa-f:]{17}' onchange='pgpSecretsChanged()'>"
 "</div>"
 "<div class='setting'>"
 "<label>Blob Data (PGP_BLOB)</label>"
-"<div class='help'>Device blob data (hex string, 256 chars max)</div>"
-"<textarea id='deviceBlob' maxlength='256' rows='4' placeholder='0123456789ABCDEF...' onchange='deviceConfigChanged()'></textarea>"
+"<div class='help'>Device blob data - MUST be exactly 512 hex chars (256 bytes)</div>"
+"<textarea id='pgpSecretBlob' maxlength='512' rows='6' placeholder='61f60a07450cd116...' onchange='pgpSecretsChanged()'></textarea>"
+"<div class='char-count'>Length: <span id='pgpBlobLength'>0</span>/512 chars</div>"
 "</div>"
 "<div class='setting'>"
 "<label>Device Key (PGP_DEVICE_KEY)</label>"
-"<div class='help'>Device encryption key (hex string, 32 chars max)</div>"
-"<input type='text' id='deviceKey' maxlength='32' placeholder='0123456789ABCDEF' pattern='[0-9A-Fa-f]{0,32}' onchange='deviceConfigChanged()'>"
+"<div class='help'>Device encryption key - MUST be exactly 32 hex chars (16 bytes)</div>"
+"<input type='text' id='pgpSecretKey' maxlength='32' placeholder='f972916afd2db437...' pattern='[0-9A-Fa-f]{32}' onchange='pgpSecretsChanged()'>"
+"<div class='char-count'>Length: <span id='pgpKeyLength'>0</span>/32 chars</div>"
+"</div>"
+"<div class='btn-group'>"
+"<button onclick='savePgpSecrets()'>💾 Save PGP Secrets</button>"
+"<button class='btn-reset' onclick='resetPgpSecrets()'>🔄 Reset to Empty</button>"
+"</div>"
+"</div>"
+"</div>"
+
+// Sub-Tab 1: Device Config (device_cfg namespace)
+"<div class='sub-tab-content' id='deviceSubTab1'>"
+"<div class='card'>"
+"<h2>⚙️ Device Config (Web Interface)</h2>"
+"<div class='info-box'>"
+"<strong>🌐 Web Interface Configuration</strong><br>"
+"These settings are for web interface display only.<br>"
+"Stored in NVS namespace: <code>device_cfg</code><br>"
+"⚠️ NOT used by Bluetooth! Use PGP Secrets tab for actual device functionality."
+"</div>"
+"<div class='setting'>"
+"<label>Device Name</label>"
+"<div class='help'>Display name in web interface (max 63 chars)</div>"
+"<input type='text' id='deviceName' maxlength='63' placeholder='Pokemon GO Plus' onchange='deviceConfigChanged()'>"
+"</div>"
+"<div class='setting'>"
+"<label>MAC Address</label>"
+"<div class='help'>Display MAC (format: XX:XX:XX:XX:XX:XX)</div>"
+"<input type='text' id='deviceMac' maxlength='17' placeholder='00:00:00:00:00:00' pattern='[0-9A-Fa-f:]{17}' onchange='deviceConfigChanged()'>"
+"</div>"
+"<div class='setting'>"
+"<label>Blob Data</label>"
+"<div class='help'>Device blob for reference (hex string)</div>"
+"<textarea id='deviceBlob' maxlength='512' rows='4' placeholder='Optional...' onchange='deviceConfigChanged()'></textarea>"
+"</div>"
+"<div class='setting'>"
+"<label>Device Key</label>"
+"<div class='help'>Device key for reference (hex string)</div>"
+"<input type='text' id='deviceKey' maxlength='32' placeholder='Optional...' pattern='[0-9A-Fa-f]{0,32}' onchange='deviceConfigChanged()'>"
 "</div>"
 "<div class='btn-group'>"
 "<button onclick='saveDeviceConfig()'>💾 Save Config</button>"
@@ -274,7 +337,7 @@ static const char index_html[] =
 "</div>"
 "</div>"
 
-"</div>"
+"</div>" // End Tab 4
 
 "<script>"
 "let timerInterval,hasChanges=false,hasSecretsChanges=false,hasDeviceConfigChanges=false,currentTab=0,isPaused=false;"
@@ -294,6 +357,109 @@ static const char index_html[] =
 "function settingsChanged(){hasChanges=true;}"
 "function secretsChanged(){hasSecretsChanges=true;}"
 "function deviceConfigChanged(){hasDeviceConfigChanges=true;}"
+
+/******************************************************** */
+
+"let hasPgpSecretsChanges=false,currentDeviceTab=0;"
+
+"function pgpSecretsChanged(){hasPgpSecretsChanges=true;}"
+
+"function switchDeviceTab(tab){"
+"currentDeviceTab=tab;"
+"document.querySelectorAll('.sub-tab').forEach((t,i)=>t.classList.toggle('active',i===tab));"
+"document.querySelectorAll('.sub-tab-content').forEach((c,i)=>c.classList.toggle('active',i===tab));"
+"if(tab===0)loadPgpSecrets();"
+"if(tab===1)loadDeviceConfig();"
+"}"
+
+"function updateCharCounts(){"
+"const blob=document.getElementById('pgpSecretBlob');"
+"const key=document.getElementById('pgpSecretKey');"
+"if(blob)document.getElementById('pgpBlobLength').textContent=blob.value.length;"
+"if(key)document.getElementById('pgpKeyLength').textContent=key.value.length;"
+"}"
+
+"function loadPgpSecrets(){"
+"fetch('/api/pgp_secrets')"
+".then(r=>r.json())"
+".then(data=>{"
+"document.getElementById('pgpSecretName').value=data.name||'';"
+"document.getElementById('pgpSecretMac').value=data.mac||'';"
+"document.getElementById('pgpSecretBlob').value=data.blob||'';"
+"document.getElementById('pgpSecretKey').value=data.dkey||'';"
+"updateCharCounts();"
+"hasPgpSecretsChanges=false;"
+"})"
+".catch(err=>console.error('Load PGP secrets failed:',err));"
+"}"
+
+"function savePgpSecrets(){"
+"if(!hasPgpSecretsChanges){"
+"alert('No changes to save!');"
+"return;"
+"}"
+"const blob=document.getElementById('pgpSecretBlob').value;"
+"const key=document.getElementById('pgpSecretKey').value;"
+"if(blob.length!==512){"
+"alert('ERROR: Blob must be exactly 512 hex characters (256 bytes)!\\nCurrent: '+blob.length+' chars');"
+"return;"
+"}"
+"if(key.length!==32){"
+"alert('ERROR: Key must be exactly 32 hex characters (16 bytes)!\\nCurrent: '+key.length+' chars');"
+"return;"
+"}"
+"const data={"
+"name:document.getElementById('pgpSecretName').value,"
+"mac:document.getElementById('pgpSecretMac').value,"
+"blob:blob,"
+"dkey:key"
+"};"
+"fetch('/api/pgp_secrets',{method:'POST',body:JSON.stringify(data)})"
+".then(r=>r.json())"
+".then(()=>{"
+"alert('PGP Secrets saved!\\n⚠️ Restart device for changes to take effect.');"
+"hasPgpSecretsChanges=false;"
+"})"
+".catch(err=>{"
+"alert('Save failed: '+err);"
+"console.error('Save PGP secrets failed:',err);"
+"});"
+"}"
+
+"function resetPgpSecrets(){"
+"if(!confirm('Reset PGP Secrets?\\n\\nThis will ERASE all secrets from the pgpsecret namespace!\\n\\nBluetooth will NOT work until you configure new secrets.'))return;"
+"fetch('/api/pgp_secrets/reset',{method:'POST'})"
+".then(r=>r.json())"
+".then(()=>{"
+"alert('PGP Secrets reset!\\n⚠️ Restart device.');"
+"loadPgpSecrets();"
+"})"
+".catch(err=>alert('Reset failed: '+err));"
+"}"
+
+// Update existing loadDeviceConfig to match:
+"function loadDeviceConfig(){"
+"fetch('/api/device_config')"
+".then(r=>r.json())"
+".then(data=>{"
+"document.getElementById('deviceName').value=data.name||'';"
+"document.getElementById('deviceMac').value=data.mac||'';"
+"document.getElementById('deviceBlob').value=data.blob||'';"
+"document.getElementById('deviceKey').value=data.dkey||'';"
+"hasDeviceConfigChanges=false;"
+"})"
+".catch(err=>console.error('Load device config failed:',err));"
+"}"
+
+// Add character count update on input
+"document.addEventListener('DOMContentLoaded',function(){"
+"const blob=document.getElementById('pgpSecretBlob');"
+"const key=document.getElementById('pgpSecretKey');"
+"if(blob)blob.addEventListener('input',updateCharCounts);"
+"if(key)key.addEventListener('input',updateCharCounts);"
+"});"
+
+/********************************************************* */
 
 "function switchTab(tab){"
 "currentTab=tab;"
@@ -588,6 +754,8 @@ static esp_err_t api_devices_handler(httpd_req_t *req)
     free((void *)json_str);
     cJSON_Delete(root);
     return ESP_OK;
+
+
 }
 
 /* API: Device POST */
@@ -936,7 +1104,105 @@ static esp_err_t api_device_config_reset_handler(httpd_req_t *req)
     cJSON_Delete(response);
     return ESP_OK;
 }
+/****************************************/
 
+
+
+/* API: PGP Secrets GET (NEW v2.0) */
+static esp_err_t api_get_pgp_secrets(httpd_req_t *req)
+{
+    device_config_t config;
+    esp_err_t ret = get_pgp_secrets_config(&config);
+    
+    if (ret != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to load PGP secrets");
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "name", config.name);
+    cJSON_AddStringToObject(root, "mac", config.mac);
+    cJSON_AddStringToObject(root, "blob", config.blob);
+    cJSON_AddStringToObject(root, "dkey", config.dkey);
+    
+    const char *json_str = cJSON_Print(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_str);
+    
+    cJSON_Delete(root);
+    free((void*)json_str);
+    
+    return ESP_OK;
+}
+
+/* API: PGP Secrets POST (NEW v2.0) */
+static esp_err_t api_post_pgp_secrets(httpd_req_t *req)
+{
+    char buf[2048];
+    int ret = httpd_req_recv(req, buf, sizeof(buf) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No data");
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+    
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+    
+    device_config_t config = {0};
+    
+    cJSON *name = cJSON_GetObjectItem(root, "name");
+    if (name && cJSON_IsString(name)) {
+        strncpy(config.name, name->valuestring, sizeof(config.name) - 1);
+    }
+    
+    cJSON *mac = cJSON_GetObjectItem(root, "mac");
+    if (mac && cJSON_IsString(mac)) {
+        strncpy(config.mac, mac->valuestring, sizeof(config.mac) - 1);
+    }
+    
+    cJSON *blob = cJSON_GetObjectItem(root, "blob");
+    if (blob && cJSON_IsString(blob)) {
+        strncpy(config.blob, blob->valuestring, sizeof(config.blob) - 1);
+    }
+    
+    cJSON *dkey = cJSON_GetObjectItem(root, "dkey");
+    if (dkey && cJSON_IsString(dkey)) {
+        strncpy(config.dkey, dkey->valuestring, sizeof(config.dkey) - 1);
+    }
+    
+    cJSON_Delete(root);
+    
+    esp_err_t err = set_pgp_secrets_config(&config);
+    if (err != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Save failed");
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+    return ESP_OK;
+}
+
+/* API: PGP Secrets Reset (NEW v2.0) */
+static esp_err_t api_reset_pgp_secrets(httpd_req_t *req)
+{
+    esp_err_t ret = reset_pgp_secrets();
+    
+    if (ret != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Reset failed");
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+    return ESP_OK;
+}
+
+
+
+/*******************************************/
 /* Start web server */
 esp_err_t web_server_start(void)
 {
@@ -947,9 +1213,9 @@ esp_err_t web_server_start(void)
     
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_open_sockets = 20;  // v1.2.0: Increased for device config
+    config.max_open_sockets = 28;  // v1.2.0: Increased for device config
     config.lru_purge_enable = true;
-    config.max_uri_handlers = 20;
+    config.max_uri_handlers = 28;
     
     ESP_LOGI(TAG, "Starting web server v1.2.0");
     
@@ -973,6 +1239,9 @@ esp_err_t web_server_start(void)
         httpd_register_uri_handler(server, &uri_stats);
         httpd_uri_t uri_devs = {"/api/devices", HTTP_GET, api_devices_handler, NULL};
         httpd_register_uri_handler(server, &uri_devs);
+
+
+
         httpd_uri_t uri_dev_post = {"/api/device", HTTP_POST, api_device_post_handler, NULL};
         httpd_register_uri_handler(server, &uri_dev_post);
         httpd_uri_t uri_set_get = {"/api/settings", HTTP_GET, api_settings_get_handler, NULL};
@@ -997,6 +1266,37 @@ esp_err_t web_server_start(void)
         httpd_register_uri_handler(server, &uri_dc_post);
         httpd_uri_t uri_dc_reset = {"/api/device_config/reset", HTTP_POST, api_device_config_reset_handler, NULL};
         httpd_register_uri_handler(server, &uri_dc_reset);
+        
+        /************************************************ */
+        
+        // PGP Secrets APIs (NEW v2.0)
+        httpd_uri_t api_get_pgp_secrets_uri = {
+            .uri = "/api/pgp_secrets",
+            .method = HTTP_GET,
+            .handler = api_get_pgp_secrets,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_get_pgp_secrets_uri);
+        
+        httpd_uri_t api_post_pgp_secrets_uri = {
+            .uri = "/api/pgp_secrets",
+            .method = HTTP_POST,
+            .handler = api_post_pgp_secrets,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_post_pgp_secrets_uri);
+        
+        httpd_uri_t api_reset_pgp_secrets_uri = {
+            .uri = "/api/pgp_secrets/reset",
+            .method = HTTP_POST,
+            .handler = api_reset_pgp_secrets,
+            .user_ctx = NULL
+        };
+        httpd_register_uri_handler(server, &api_reset_pgp_secrets_uri);
+
+
+
+        /************************************************* */
         
         // Catchall
         httpd_uri_t uri_catchall = {"/*", HTTP_GET, captive_portal_redirect, NULL};

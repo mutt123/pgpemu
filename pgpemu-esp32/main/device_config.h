@@ -1,14 +1,47 @@
 /**
- * @file device_config.h
- * @brief PGP Device Configuration Management
+ * @file device_config.h v2.0-DUAL
+ * @brief PGP Device Configuration Management - DUAL NAMESPACE SUPPORT
  * 
- * Manages Pokemon Go Plus device-specific settings:
- * - Clone Name (advertised device name)
- * - MAC Address (Bluetooth MAC)
- * - Blob Data (device-specific blob)
- * - Device Key (encryption key)
+ * =============================================================================
+ * ZWECK DIESER DATEI:
+ * =============================================================================
  * 
- * All settings are stored in NVS and persist across reboots.
+ * Diese Datei verwaltet Pokemon GO Plus Device-Konfigurationen und löst das
+ * Problem von ZWEI getrennten NVS Namespaces die nicht synchronisiert waren.
+ * 
+ * PROBLEM (v1.x):
+ * ---------------
+ * - Namespace "pgpsecret" (binary data) → Wird von Bluetooth Stack genutzt
+ * - Namespace "device_cfg" (string data) → Wird von Web Interface genutzt
+ * - KEIN SYNC zwischen beiden → Web Interface zeigt falsche Daten!
+ * 
+ * LÖSUNG (v2.0):
+ * --------------
+ * - Beide Namespaces werden separat verwaltet
+ * - Web Interface kann BEIDE sehen und editieren
+ * - Jeder Namespace hat eigene Get/Set Funktionen
+ * - Proper binary ↔ hex string Konvertierung
+ * 
+ * =============================================================================
+ * NAMESPACE ÜBERSICHT:
+ * =============================================================================
+ * 
+ * 1. "pgpsecret" - Bluetooth Stack Configuration
+ *    ├─ Gespeichert: Binary Format
+ *    ├─ Verwendet von: Bluetooth GAP, Pokemon GO Connection
+ *    ├─ Quelle: secrets.csv beim Flash
+ *    └─ WICHTIG: Änderungen erfordern Device Restart!
+ * 
+ * 2. "device_cfg" - Web Interface Configuration
+ *    ├─ Gespeichert: String Format (hex strings)
+ *    ├─ Verwendet von: Web Interface Anzeige
+ *    ├─ Quelle: Web Interface Eingaben
+ *    └─ Optional: Kann leer sein (defaults werden genutzt)
+ * 
+ * =============================================================================
+ * AUTHOR: Generated for pgpemu-esp32 project
+ * DATE: 2026-03-10
+ * =============================================================================
  */
 
 #ifndef DEVICE_CONFIG_H
@@ -18,134 +51,121 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Default values
+// =============================================================================
+// DEFAULT VALUES (für "device_cfg" namespace)
+// =============================================================================
+
 #define DEFAULT_PGP_CLONE_NAME "Pokemon GO Plus"
 #define DEFAULT_PGP_MAC        "00:00:00:00:00:00"
 #define DEFAULT_PGP_BLOB       ""
 #define DEFAULT_PGP_DEVICE_KEY ""
 
-// Device Configuration Structure
+// =============================================================================
+// DEVICE CONFIGURATION STRUCTURE
+// =============================================================================
+
+/**
+ * @brief Device Configuration Structure (String Format für Web Interface)
+ */
 typedef struct {
-    char name[64];      // PGP_CLONE_NAME - Advertised device name
-    char mac[18];       // PGP_MAC - MAC address (format: XX:XX:XX:XX:XX:XX)
-    char blob[257];     // PGP_BLOB - Device blob data (hex string)
-    char dkey[33];      // PGP_DEVICE_KEY - Device encryption key (hex string)
+    char name[64];      /**< Device name (max 63 chars) */
+    char mac[18];       /**< MAC address "XX:XX:XX:XX:XX:XX" */
+    char blob[513];     /**< Blob data (hex string, 512 chars für pgpsecret) */
+    char dkey[33];      /**< Device key (hex string, 32 chars für pgpsecret) */
 } device_config_t;
+
+// =============================================================================
+// INITIALIZATION
+// =============================================================================
 
 /**
  * @brief Initialize device configuration system
  * 
- * Loads configuration from NVS or sets defaults if not found.
- * Must be called before using any other functions.
+ * Lädt BEIDE Namespaces ("device_cfg" und "pgpsecret") aus NVS.
+ * MUSS vor allen anderen Funktionen aufgerufen werden!
  * 
  * @return ESP_OK on success
  */
 esp_err_t device_config_init(void);
 
+// =============================================================================
+// "device_cfg" NAMESPACE FUNCTIONS
+// =============================================================================
+
 /**
- * @brief Get current device configuration
- * 
- * @param config Pointer to device_config_t structure to fill
- * @return ESP_OK on success, ESP_ERR_INVALID_ARG if config is NULL
+ * @brief Get "device_cfg" configuration
+ * @param config Output buffer
+ * @return ESP_OK on success
  */
 esp_err_t get_device_config(device_config_t *config);
 
 /**
- * @brief Set complete device configuration
- * 
- * Updates all fields and saves to NVS.
- * 
- * @param config Pointer to device_config_t structure with new values
- * @return ESP_OK on success
+ * @brief Set "device_cfg" configuration
+ * @param config New configuration
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG on validation error
  */
 esp_err_t set_device_config(const device_config_t *config);
 
 /**
- * @brief Set PGP clone name
- * 
- * @param name New device name (max 63 chars)
- * @return ESP_OK on success
- */
-esp_err_t set_pgp_clone_name(const char *name);
-
-/**
- * @brief Get PGP clone name
- * 
- * @return Pointer to current device name (read-only)
- */
-const char* get_pgp_clone_name(void);
-
-/**
- * @brief Set PGP MAC address
- * 
- * @param mac New MAC address (format: XX:XX:XX:XX:XX:XX)
- * @return ESP_OK on success, ESP_ERR_INVALID_ARG if format invalid
- */
-esp_err_t set_pgp_mac(const char *mac);
-
-/**
- * @brief Get PGP MAC address
- * 
- * @return Pointer to current MAC address (read-only)
- */
-const char* get_pgp_mac(void);
-
-/**
- * @brief Set PGP blob data
- * 
- * @param blob New blob data (hex string, max 256 chars)
- * @return ESP_OK on success, ESP_ERR_INVALID_ARG if not valid hex
- */
-esp_err_t set_pgp_blob(const char *blob);
-
-/**
- * @brief Get PGP blob data
- * 
- * @return Pointer to current blob data (read-only)
- */
-const char* get_pgp_blob(void);
-
-/**
- * @brief Set PGP device key
- * 
- * @param dkey New device key (hex string, max 32 chars)
- * @return ESP_OK on success, ESP_ERR_INVALID_ARG if not valid hex
- */
-esp_err_t set_pgp_device_key(const char *dkey);
-
-/**
- * @brief Get PGP device key
- * 
- * @return Pointer to current device key (read-only)
- */
-const char* get_pgp_device_key(void);
-
-/**
- * @brief Reset device configuration to defaults
- * 
- * Resets all fields to DEFAULT_* values and saves to NVS.
- * 
+ * @brief Reset "device_cfg" to defaults
  * @return ESP_OK on success
  */
 esp_err_t reset_device_config(void);
 
+// =============================================================================
+// "pgpsecret" NAMESPACE FUNCTIONS (NEW v2.0)
+// =============================================================================
+
 /**
- * @brief Validate MAC address format
+ * @brief Get "pgpsecret" configuration (echte Bluetooth Secrets!)
+ * @param config Output buffer (binary→string converted)
+ * @return ESP_OK on success
+ */
+esp_err_t get_pgp_secrets_config(device_config_t *config);
+
+/**
+ * @brief Set "pgpsecret" configuration (KRITISCH: ändert Bluetooth!)
  * 
- * Checks if string is valid MAC address (XX:XX:XX:XX:XX:XX)
+ * WICHTIG: 
+ * - Blob MUSS exakt 512 hex chars sein
+ * - Key MUSS exakt 32 hex chars sein
+ * - Device Restart erforderlich!
  * 
- * @param mac MAC address string to validate
- * @return true if valid, false otherwise
+ * @param config New secrets
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG on validation error
+ */
+esp_err_t set_pgp_secrets_config(const device_config_t *config);
+
+/**
+ * @brief Reset "pgpsecret" (⚠️ LÖSCHT alle Secrets!)
+ * @return ESP_OK on success
+ */
+esp_err_t reset_pgp_secrets(void);
+
+// =============================================================================
+// LEGACY COMPATIBILITY
+// =============================================================================
+
+esp_err_t set_pgp_clone_name(const char *name);
+const char* get_pgp_clone_name(void);
+esp_err_t set_pgp_mac(const char *mac);
+const char* get_pgp_mac(void);
+esp_err_t set_pgp_blob(const char *blob);
+const char* get_pgp_blob(void);
+esp_err_t set_pgp_device_key(const char *dkey);
+const char* get_pgp_device_key(void);
+
+// =============================================================================
+// VALIDATION
+// =============================================================================
+
+/**
+ * @brief Validate MAC format (XX:XX:XX:XX:XX:XX)
  */
 bool validate_mac_address(const char *mac);
 
 /**
- * @brief Validate hex string
- * 
- * Checks if string contains only hex characters (0-9, A-F, a-f)
- * 
- * @param hex Hex string to validate
- * @return true if valid, false otherwise
+ * @brief Validate hex string (nur 0-9, A-F, a-f)
  */
 bool validate_hex_string(const char *hex);
 
