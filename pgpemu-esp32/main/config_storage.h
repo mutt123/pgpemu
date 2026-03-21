@@ -32,4 +32,36 @@ bool has_cached_session(esp_bd_addr_t bda);
 // Clear session keys on manual user request (optional)
 bool clear_device_session(esp_bd_addr_t bda);
 
+// --------------------------------------------------------------------------
+// BDA-Tracking: remember which device connected last so that two ESP32s
+// sharing the same secrets-dump can alternate without stale session keys.
+// --------------------------------------------------------------------------
+
+/**
+ * @brief Save the BDA (Bluetooth Device Address) of the most recently
+ *        successfully-paired device to NVS.
+ *
+ * Call this right after a successful full handshake (cert_state reaches 6
+ * via the normal path) so we know whose session keys are currently stored.
+ *
+ * @param bda  The remote BDA that just completed the handshake.
+ * @return true on success, false on NVS write error.
+ */
+bool save_last_connected_bda(const esp_bd_addr_t bda);
+
+/**
+ * @brief Check whether the given BDA matches the last device that performed
+ *        a full handshake.
+ *
+ * Used in pgp_handshake.c to decide whether the cached session keys still
+ * belong to the connecting device:
+ *   - same BDA  →  use cached keys (fast reconnect)
+ *   - different BDA → clear cache, force full handshake (Passkey 000000)
+ *
+ * @param bda  The remote BDA of the current connection attempt.
+ * @return true if @p bda matches the stored last-BDA, false otherwise
+ *         (including the case where no BDA has been saved yet).
+ */
+bool is_same_as_last_bda(const esp_bd_addr_t bda);
+
 #endif /* CONFIG_STORAGE_H */

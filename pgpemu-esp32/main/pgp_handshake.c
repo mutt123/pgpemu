@@ -41,7 +41,7 @@ void handle_pgp_handshake_first(esp_gatt_if_t gatts_if, uint16_t descr_value, ui
             client_state->remote_bda[5]);
 
         if (client_state->has_reconnect_key) {
-            // reconnect challenge
+            // Reconnect using in-memory key (same BDA, same session)
             ESP_LOGI(HANDSHAKE_TAG, "[%d] Using in-memory reconnect key", conn_id);
             notify_data[0] = 3;
 
@@ -54,13 +54,26 @@ void handle_pgp_handshake_first(esp_gatt_if_t gatts_if, uint16_t descr_value, ui
 
             client_state->cert_state = 3;
         } else if (has_cached_session(client_state->remote_bda)) {
-            // Try to use cached session keys for faster reconnection
+            // -------------------------------------------------------------------
+            // BDA-Tracking: only use the cached keys if this is the *same* device
+            // that performed the last full handshake.  When two ESP32s share one
+            // set of secrets the second device has a different BDA, so the cached
+            // keys belong to the first device and must not be reused.
+            // -------------------------------------------------------------------
+            if (!is_same_as_last_bda(client_state->remote_bda)) {
+                ESP_LOGW(HANDSHAKE_TAG,
+                    "[%d] Different device detected – clearing stale session cache, forcing full handshake",
+                    conn_id);
+                clear_device_session(client_state->remote_bda);
+                goto do_full_handshake;
+            }
+
+            // Same device: try to use cached session keys for faster reconnection
             if (retrieve_device_session_keys(
                     client_state->remote_bda, client_state->session_key, client_state->reconnect_challenge)) {
                 client_state->has_reconnect_key = true;
                 ESP_LOGI(HANDSHAKE_TAG, "[%d] Using cached session keys for reconnection", conn_id);
 
-                // Send reconnect challenge
                 notify_data[0] = 3;
                 memset(client_state->cert_buffer, 0, 36);
                 client_state->cert_buffer[0] = 3;
@@ -71,7 +84,6 @@ void handle_pgp_handshake_first(esp_gatt_if_t gatts_if, uint16_t descr_value, ui
 
                 client_state->cert_state = 3;
             } else {
-                // Cache retrieval failed, fall through to full handshake
                 ESP_LOGW(
                     HANDSHAKE_TAG, "[%d] Failed to retrieve cached session keys, starting full handshake", conn_id);
                 goto do_full_handshake;
@@ -79,7 +91,6 @@ void handle_pgp_handshake_first(esp_gatt_if_t gatts_if, uint16_t descr_value, ui
         } else {
         do_full_handshake:
             if (use_debug_buffer_values) {
-                // use fixed key for easier debugging
                 memset(client_state->the_challenge, 0x41, 16);
                 memset(client_state->main_nonce, 0x42, 16);
                 memset(client_state->session_key, 0x43, 16);
@@ -104,7 +115,6 @@ void handle_pgp_handshake_first(esp_gatt_if_t gatts_if, uint16_t descr_value, ui
         }
 
         ESP_LOGD(HANDSHAKE_TAG, "[%d] start CERT PAIRING", conn_id);
-        // the size of notify_data[] need less than MTU size
         esp_ble_gatts_send_indicate(gatts_if,
             conn_id,
             certificate_handle_table[IDX_CHAR_SFIDA_COMMANDS_VAL],
@@ -134,7 +144,6 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
     case 0:  // normal challenge+response entry point
     {
         if (datalen == 20) {
-            // just assume server responds correctly
             uint8_t notify_data[4];
             memset(notify_data, 0, 4);
             notify_data[0] = 0x01;
@@ -154,9 +163,6 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
             temp[0] = 0x01;
             memcpy(client_state->cert_buffer, temp, 52);
 
-            // ESP_LOG_BUFFER_HEX(HANDSHAKE_TAG, temp, sizeof(temp));
-            // ESP_LOG_BUFFER_HEX(HANDSHAKE_TAG, cert_buffer, 52);
-
             esp_ble_gatts_set_attr_value(
                 certificate_handle_table[IDX_CHAR_SFIDA_TO_CENTRAL_VAL], 52, client_state->cert_buffer);
             esp_ble_gatts_send_indicate(gatts_if,
@@ -173,7 +179,6 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
         break;
     }
     case 1: {
-        // we need to decrypt and send challenge data from APP
         uint8_t temp[20];
         memset(temp, 0, sizeof(temp));
         decrypt_next(prepare_buf, client_state->session_key, temp + 4);
@@ -225,6 +230,9 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
         persist_device_session_keys(
             client_state->remote_bda, client_state->session_key, client_state->reconnect_challenge);
 
+        // BDA-Tracking: remember this device as the last to do a full handshake
+        save_last_connected_bda(client_state->remote_bda);
+
         uint8_t notify_data[4] = { 0x04, 0x00, 0x23, 0x00 };
         esp_ble_gatts_send_indicate(gatts_if,
             conn_id,
@@ -241,7 +249,6 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
     case 3:  // reconnection #1: entry point
     {
         if (datalen == 20) {
-            // just assume server responds correctly
             ESP_LOGI(HANDSHAKE_TAG, "[%d] reconnection challenge received (state 3->4)", conn_id);
             if (esp_log_level_get(HANDSHAKE_TAG) >= ESP_LOG_DEBUG) {
                 ESP_LOG_BUFFER_HEX(HANDSHAKE_TAG, prepare_buf, datalen);
@@ -292,7 +299,6 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
     case 5:  // reconnection #3: established
     {
         if (datalen == 5) {
-            // just assume server responds correctly
             ESP_LOGI(HANDSHAKE_TAG, "[%d] reconnection complete (state 5->6)", conn_id);
 
             uint8_t notify_data[4] = { 0x04, 0x00, 0x02, 0x00 };
@@ -304,9 +310,9 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
                 false);
 
             client_state->cert_state = 6;
-            // For reconnections on a fresh entry (connection_start == 0), increment the counter.
-            // For reconnections on an existing entry (connection_start != 0), just update timestamp.
-            // This handles both scenarios: fresh slots vs reconnections within same slot.
+
+            // For reconnections on a fresh entry, increment the counter.
+            // For reconnections on an existing entry, just update timestamp.
             if (client_state->connection_start == 0) {
                 connection_start(conn_id);
             } else {
@@ -315,6 +321,14 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
             advertise_if_needed();
         } else {
             ESP_LOGW(HANDSHAKE_TAG, "[%d] reconnection #3 unexpected datalen=%d", conn_id, datalen);
+
+            // Reconnect failed – the cached keys may be stale (e.g. came from a
+            // different ESP32 unit).  Clear them so the next attempt forces a full
+            // handshake with Passkey 000000.
+            ESP_LOGW(HANDSHAKE_TAG,
+                "[%d] Clearing stale session cache after reconnect failure", conn_id);
+            clear_device_session(client_state->remote_bda);
+            client_state->has_reconnect_key = false;
         }
         break;
     }
@@ -325,7 +339,6 @@ void handle_pgp_handshake_second(esp_gatt_if_t gatts_if, const uint8_t* prepare_
 }
 
 void pgp_handshake_disconnect(uint16_t conn_id) {
-    // this deletes the client state entry
     connection_stop(conn_id);
 }
 
